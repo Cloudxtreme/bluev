@@ -26,22 +26,23 @@ static unsigned int frametime;
 static unsigned char slice = 4;
 
 // Received character from bluetooth
-static unsigned char inmsg;
+static unsigned char inmsgstate;
 static int validate() {
-    if( frametime ) // sending in progress - treat as overrun and ignore
+#if 0
+    // not required if it uses inmsgstate to mutex
+    if( frametime >= 45*slice ) // sending in progress - treat as overrun and ignore
 	return 0;
+#endif
     // device send ID should be valid for 3rd party
     unsigned char sl = midbuf[2] & 0x0f;
     if( sl < 3 || sl > 5 )
 	return 0;
-#if 1
     // checksum test - note midlen is one short since this is called before 0xab is stored
     unsigned char ix, cks = 0;
     for( ix = 0; ix < midlen - 1; ix++ )
 	cks += midbuf[ix];
     if( cks != midbuf[midlen - 1] )
 	return 0;
-#endif
     slice = sl;
     return 1;
 }
@@ -50,36 +51,36 @@ ISR(USART_RX_vect)
 {
     unsigned char c = UDR;
 
-    switch( inmsg ) {
+    switch( inmsgstate ) {
     case 0:
 	if (c == 0xaa) {
 	    midlen = 0;
-	    inmsg++;
+	    inmsgstate++;
 	}
 	break;
     case 1:
 	if ((c & 0xf0) == 0xd0)
-	    inmsg++;
+	    inmsgstate++;
 	else
-	    inmsg = 0;
+	    inmsgstate = 0;
 	break;
     case 2:
 	if ((c & 0xf0) == 0xe0)
-	    inmsg++;
+	    inmsgstate++;
 	else
-	    inmsg = 0;
+	    inmsgstate = 0;
 	break;
     case 3:
 	if( midlen == 4 && c > 22 ) { // length
-	    inmsg = 0;
+	    inmsgstate = 0;
 	    break;
 	}	    
 	if ( c == 0xab && midlen > 4 && midbuf[4] + 5 == midlen) {
 	    midbuf[midlen] = c; // avoid race 
 	    if( validate() )
-		inmsg = 4;
+		inmsgstate = 4;
 	    else
-		inmsg = 0;
+		inmsgstate = 0;
 	}
 	break;
     case 4: // waiting for transmit
@@ -87,10 +88,10 @@ ISR(USART_RX_vect)
     default:
 	break;
     }
-    if( inmsg && midlen < MIDSIZE )
+    if( inmsgstate && midlen < MIDSIZE )
 	midbuf[midlen++] = c;
     else
-	inmsg = 0;
+	inmsgstate = 0;
 }
 
 /*-------------------------------------------------------------------------*/
@@ -101,9 +102,12 @@ static unsigned int bitcnt;
 // General setup of timing and J1850 - for out of reset and out of deep sleep
 void hardwareinit(void)
 {
-    inmsg = 4;
+    /*
+    inmsgstate = 4;
     strcpy_P( midbuf, PSTR("\xaa\xda\xe4\x41\x01\xaa\xab") );
     midlen = 7;
+    */
+    inmsgstate = midlen = 0;
 
     /* setup serial port */
 #include <util/setbaud.h>
@@ -146,6 +150,9 @@ ISR(TIMER1_OVF_vect)
     hitime++;
 }
 #endif
+
+// This counts character times to find the slot to transmit.
+// FIXME - doesn't try to resync or otherwise avoid collisions with other devices
 ISR(TIMER1_COMPB_vect)
 {
     OCR1B += BITTIME(10);
@@ -154,7 +161,7 @@ ISR(TIMER1_COMPB_vect)
     if( frametime < 45*slice )
 	return;
 
-    if( inmsg != 4 ) { // nothing for this frame
+    if( inmsgstate != 4 ) { // nothing for this frame
 	TIMSK &= ~_BV(OCIE1B);
 	UCSRB &= ~_BV(TXEN);      /* disable tx */
 	frametime = 0;
@@ -169,7 +176,7 @@ ISR(TIMER1_COMPB_vect)
 	TIMSK &= ~_BV(OCIE1B);
 	UCSRB &= ~_BV(TXEN);      /* disable tx */
 	frametime = 0;
-	inmsg = 0;
+	inmsgstate = 0;
 	return;
     }
 
@@ -177,11 +184,12 @@ ISR(TIMER1_COMPB_vect)
 	unsigned char ptr = (frametime - (45*slice+1)) >> 1;
 	if( ptr < midlen )
 	    UDR = midbuf[ptr];
-	else
+	if( ptr > midlen )	
 	    UCSRB &= ~_BV(TXEN);      /* disable tx */
     }
 }
 
+// This tracks the V1 infDisplayData packet to sync the ESP cycle
 static unsigned char v1state = 0, thislen;
 void dostate(unsigned char val) {
     switch( v1state ) {
