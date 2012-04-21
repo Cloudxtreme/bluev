@@ -1,3 +1,5 @@
+Source code and electronic designs are licensed under the GNU General Public License Version 3
+
 This is a Valentine V1 ESP interface based on the ATtiny4131 running at 20Mhz
 
 Baud is 57600 as per spec.
@@ -29,3 +31,9 @@ The pins on the ATtiny4313 are (PDIP/SOIC)
 11 ICP1 PD6 - to pin 3 TXD and V1 Data Line (and to bluetooth/serial receive via diode)
 
 The ICP1 is used to create a 57600 baud software UART and to do timing to do the proper framing.
+
+(In Progress)
+
+The data stream will directly go out via a bluetooth interface (breaks may cause nulls in the data).
+
+Data from the bluetooth interface will be stored and validated (it has to be a valid ESP message with IDs 3, 4, or 5) and sent out at the correct time for the device ID.
