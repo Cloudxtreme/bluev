@@ -34,12 +34,14 @@ static int validate() {
     unsigned char sl = midbuf[2] & 0x0f;
     if( sl < 3 || sl > 5 )
 	return 0;
-    // checksum test
+#if 1
+    // checksum test - note midlen is one short since this is called before 0xab is stored
     unsigned char ix, cks = 0;
-    for( ix = 0; ix < midlen - 2; ix++ )
+    for( ix = 0; ix < midlen - 1; ix++ )
 	cks += midbuf[ix];
-    if( cks != midbuf[midlen-2] )
+    if( cks != midbuf[midlen - 1] )
 	return 0;
+#endif
     slice = sl;
     return 1;
 }
@@ -72,12 +74,14 @@ ISR(USART_RX_vect)
 	    inmsg = 0;
 	    break;
 	}	    
-	if ( c == 0xab && midlen > 4 && midbuf[4] + 6 == midlen) {
+	if ( c == 0xab && midlen > 4 && midbuf[4] + 5 == midlen) {
+	    midbuf[midlen] = c; // avoid race 
 	    if( validate() )
 		inmsg = 4;
 	    else
 		inmsg = 0;
 	}
+	break;
     case 4: // waiting for transmit
 	return;
     default:
