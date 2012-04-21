@@ -1,0 +1,31 @@
+This is a Valentine V1 ESP interface based on the ATtiny4131 running at 20Mhz
+
+Baud is 57600 as per spec.
+
+See Downloads for schematic or board info when available.
+
+The pins on the ATtiny4313 are (PDIP/SOIC)
+
+1 Reset (nc/ISP/dW)
+2 RXD PD0 - from Bluetooth Module or serial transmit
+3 TXD PD1 - to pin 11 ICP1 and V1 Data Line  (and to bluetooth/serial receive via diode)
+4 XTAL1 - to 20Mhz resonator or crystal
+5 XTAL2 - to 20Mhz resonator or crystal
+6 INT0 PD2 nc
+7 INT1 PD3 nc
+8 PD4 nc
+9 PD5 nc
+10 GND - to ground
+
+20 VCC - to 5v
+19 PB7 nc SCK for ISP
+18 PB6 nc MISO for ISP
+17 PB5 nc MOSI for ISP
+16 PB4 nc
+15 PB3 nc
+14 PB2 nc
+13 PB1 nc
+12 PB0 nc
+11 ICP1 PD6 - to pin 3 TXD and V1 Data Line (and to bluetooth/serial receive via diode)
+
+The ICP1 is used to create a 57600 baud software UART and to do timing to do the proper framing.
