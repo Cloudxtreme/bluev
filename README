@@ -2,6 +2,10 @@ Source code and electronic designs are licensed under the GNU General Public Lic
 
 This is a Valentine V1 ESP interface based on the ATtiny4131 running at 20Mhz
 
+The hard part about implementing ESP packet sends is that the UART needs to be switched in and out, and the bytes have to be paced according to specific timing.  This is designed to do that hard, subtle, fiddly timing stuff.  Just send it a correct frame (from SOF to EOF with valid 3rd party device ID and checksum) and it does the rest.
+
+Currently, only the checksum version of ESP is supported.  Upgrade your V1.
+
 Baud is 57600 as per spec.
 
 See Downloads for schematic or board info when available.
@@ -32,8 +36,11 @@ The pins on the ATtiny4313 are (PDIP/SOIC)
 
 The ICP1 is used to create a 57600 baud software UART and to do timing to do the proper framing.
 
-(In Progress)
+The data stream from all devices included echoed data from the interface will directly go out via serial (breaks may cause nulls in the data).  Typically to bluetooth.
 
-The data stream will directly go out via a bluetooth interface (breaks may cause nulls in the data).
+Data from the (bluetooth) serial interface will be stored and validated (it has to be a valid ESP message with IDs 3, 4, or 5) and sent out at the correct time for the device ID.
 
-Data from the bluetooth interface will be stored and validated (it has to be a valid ESP message with IDs 3, 4, or 5) and sent out at the correct time for the device ID.
+$ echo -ne "\xaa\xda\xe4\x32\x01\x9b\xab" >/dev/ttyUSB0
+Display goes off
+$ echo -ne "\xaa\xda\xe4\x33\x01\x9c\xab" >/dev/ttyUSB0
+Display goes on

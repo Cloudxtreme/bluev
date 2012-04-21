@@ -177,9 +177,8 @@ ISR(TIMER1_COMPB_vect)
 	unsigned char ptr = (frametime - (45*slice+1)) >> 1;
 	if( ptr < midlen )
 	    UDR = midbuf[ptr];
-	else {
-	    //UCSRB &= ~_BV(TXEN);      /* disable tx */
-	}
+	else
+	    UCSRB &= ~_BV(TXEN);      /* disable tx */
     }
 }
 
