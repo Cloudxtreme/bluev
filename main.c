@@ -20,24 +20,30 @@
 #define BITTIME(x)		( ((x) * F_CPU) / PRESCALE1 / BAUD)
 
 /*-------------------------------------------------------------------------*/
-#define OUTSIZE 64
-#define MIDSIZE 32
-static unsigned char midbuf[MIDSIZE], outbuf[OUTSIZE], outhead, outtail,  midlen;
-#define UPUTC(x) { outbuf[outhead++] = (x); if (outhead >= OUTSIZE) outhead = 0; }
-#define UGETC(x) { (x) = outbuf[outtail++]; if (outtail >= OUTSIZE) outtail = 0; }
+#define MIDSIZE 24
+static unsigned char midbuf[MIDSIZE], midlen;
+static unsigned int frametime;
+static unsigned char slice = 4;
 
-// add buffered send data to output buffer
-static void sendmid()
-{
-    unsigned char *mp = midbuf;
-    while (midlen) {
-	UPUTC(*mp++);
-        midlen--;
-    }
+// Received character from bluetooth
+static unsigned char inmsg;
+static int validate() {
+    if( frametime ) // sending in progress - treat as overrun and ignore
+	return 0;
+    // device send ID should be valid for 3rd party
+    unsigned char sl = midbuf[2] & 0x0f;
+    if( sl < 3 || sl > 5 )
+	return 0;
+    // checksum test
+    unsigned char ix, cks = 0;
+    for( ix = 0; ix < midlen - 2; ix++ )
+	cks += midbuf[ix];
+    if( cks != midbuf[midlen-2] )
+	return 0;
+    slice = sl;
+    return 1;
 }
 
-// Received character from GPS - put to transmit buffer, but also handle other cases
-unsigned char inmsg;
 ISR(USART_RX_vect)
 {
     unsigned char c = UDR;
@@ -46,22 +52,41 @@ ISR(USART_RX_vect)
     case 0:
 	if (c == 0xaa) {
 	    midlen = 0;
-	    inmsg = 1;
+	    inmsg++;
 	}
 	break;
-    case 5:
-	if (c == 0xab) {
-	    inmsg = 6;
-
+    case 1:
+	if ((c & 0xf0) == 0xd0)
+	    inmsg++;
+	else
+	    inmsg = 0;
+	break;
+    case 2:
+	if ((c & 0xf0) == 0xe0)
+	    inmsg++;
+	else
+	    inmsg = 0;
+	break;
+    case 3:
+	if( midlen == 4 && c > 22 ) { // length
+	    inmsg = 0;
+	    break;
+	}	    
+	if ( c == 0xab && midlen > 4 && midbuf[4] + 6 == midlen) {
+	    if( validate() )
+		inmsg = 4;
+	    else
+		inmsg = 0;
 	}
+    case 4: // waiting for transmit
+	return;
     default:
 	break;
     }
-    midbuf[midlen++] = c;
-    if( inmsg == 6 ) { // message complete, queue for send
-	sendmid();
+    if( inmsg && midlen < MIDSIZE )
+	midbuf[midlen++] = c;
+    else
 	inmsg = 0;
-    }
 }
 
 /*-------------------------------------------------------------------------*/
@@ -72,8 +97,9 @@ static unsigned int bitcnt;
 // General setup of timing and J1850 - for out of reset and out of deep sleep
 void hardwareinit(void)
 {
-    inmsg = 0;
-    outhead = outtail = midlen = 0;
+    inmsg = 4;
+    strcpy_P( midbuf, PSTR("\xaa\xda\xe4\x41\x01\xaa\xab") );
+    midlen = 7;
 
     /* setup serial port */
 #include <util/setbaud.h>
@@ -85,15 +111,10 @@ void hardwareinit(void)
     UCSRA &= ~(1 << U2X);
 #endif
     UCSRC = _BV(UCSZ0) | _BV(UCSZ1);    /* 8N1 */
-    UCSRB = _BV(RXEN);
-
-    //    UCSRB &= ~_BV(TXEN);      /* disable tx */
-    //    DDRD &= ~_BV(PD1); // set to input
-    //    PIND &= ~_BV(PD1); // no pullup
-
+    UCSRB = _BV(RXEN) | _BV(RXCIE);
     /* edge input - PD6 as input without pullup */
-    DDRD &= ~_BV(PD6);
-    PORTD &= ~_BV(PD6);
+    //DDRD &= ~_BV(PD6);
+    //    PORTD &= ~_BV(PD6);
 
     GTCCR = _BV(PSR10);         /* reset prescaler */
     TCNT1 = 0;         /* reset counter value */
@@ -121,14 +142,21 @@ ISR(TIMER1_OVF_vect)
     hitime++;
 }
 #endif
-static unsigned int frametime;
-static unsigned char slice = 4;
 ISR(TIMER1_COMPB_vect)
 {
     OCR1B += BITTIME(10);
     frametime++;
+
     if( frametime < 45*slice )
 	return;
+
+    if( inmsg != 4 ) { // nothing for this frame
+	TIMSK &= ~_BV(OCIE1B);
+	UCSRB &= ~_BV(TXEN);      /* disable tx */
+	frametime = 0;
+	return;
+    }
+
     if( frametime == 45*slice ) {
 	UCSRB |= _BV(TXEN);      /* enable tx */
 	return;
@@ -136,14 +164,15 @@ ISR(TIMER1_COMPB_vect)
     if( frametime >= 45*(slice+1) ) {
 	TIMSK &= ~_BV(OCIE1B);
 	UCSRB &= ~_BV(TXEN);      /* disable tx */
+	frametime = 0;
+	inmsg = 0;
 	return;
     }
+
     if( !(frametime & 1) ) {
 	unsigned char ptr = (frametime - (45*slice+1)) >> 1;
-	if( ptr < 7 ) {
-	    unsigned char *p = PSTR("\xaa\xda\xe4\x41\x01\xaa\xab");
-	    UDR = pgm_read_byte(p+ptr);
-	}
+	if( ptr < midlen )
+	    UDR = midbuf[ptr];
 	else {
 	    //UCSRB &= ~_BV(TXEN);      /* disable tx */
 	}
@@ -261,11 +290,9 @@ int main(void)
     /* setup uart and icp*/
     hardwareinit();
     sei();
-    //    uart_puts_P(PSTR("=Harley J1850-GPS\r\n"));
 
-    //    UCSRB |= _BV(RXCIE);
     set_sleep_mode(SLEEP_MODE_IDLE);
-    for (;;) {
+    for (;;)
         sleep_mode();
-    }
+
 }
