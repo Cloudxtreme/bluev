@@ -1,3 +1,5 @@
+HOSTCC		= gcc -Wall -O6
+
 PRG		= j1850-full
 OBJ		= main.o
 MCU		= attiny4313
@@ -17,7 +19,13 @@ LDFLAGS		= -Wl,-Map,$(PRG).map
 OBJCOPY		= avr-objcopy
 OBJDUMP		= avr-objdump
 
-all: $(PRG).elf lst text eeprom size
+all: $(PRG).elf lst text eeprom size v1reShark v1send
+
+v1reShark: v1reShark.c
+	$(HOSTCC) v1reShark.c -o $@
+
+v1send: v1send.c
+	$(HOSTCC) v1send.c -o $@
 
 $(PRG).elf: $(OBJ)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBS)
@@ -29,6 +37,7 @@ clean:
 	rm -rf $(PRG).elf $(PRG).bin $(PRG).hex $(PRG).srec
 	rm -rf $(PRG)_eeprom.bin $(PRG)_eeprom.hex $(PRG)_eeprom.srec
 	rm -rf *.lst *.map $(EXTRA_CLEAN_FILES)
+	rm -rf v1reShark v1send
 
 lst:  $(PRG).lst
 

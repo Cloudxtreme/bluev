@@ -25,23 +25,22 @@ static unsigned char midbuf[MIDSIZE], midlen;
 static unsigned int frametime;
 static unsigned char slice = 4;
 
+int ckcksum( unsigned char *buf, unsigned char len ) {
+    unsigned char ix, cks = 0;
+    for( ix = 0; ix < len; ix++ )
+	cks += buf[ix];
+    return cks != buf[len];
+}
+
 // Received character from bluetooth
 static unsigned char inmsgstate;
 static int validate() {
-#if 0
-    // not required if it uses inmsgstate to mutex
-    if( frametime >= 45*slice ) // sending in progress - treat as overrun and ignore
-	return 0;
-#endif
     // device send ID should be valid for 3rd party
     unsigned char sl = midbuf[2] & 0x0f;
     if( sl < 3 || sl > 5 )
 	return 0;
     // checksum test - note midlen is one short since this is called before 0xab is stored
-    unsigned char ix, cks = 0;
-    for( ix = 0; ix < midlen - 1; ix++ )
-	cks += midbuf[ix];
-    if( cks != midbuf[midlen - 1] )
+    if( ckcksum(midbuf, midlen-1) )
 	return 0;
     slice = sl;
     return 1;
@@ -99,49 +98,6 @@ static unsigned char polarity;
 //static unsigned int hitime;
 static unsigned int bitcnt;
 
-// General setup of timing and J1850 - for out of reset and out of deep sleep
-void hardwareinit(void)
-{
-    /*
-    inmsgstate = 4;
-    strcpy_P( midbuf, PSTR("\xaa\xda\xe4\x41\x01\xaa\xab") );
-    midlen = 7;
-    */
-    inmsgstate = midlen = 0;
-
-    /* setup serial port */
-#include <util/setbaud.h>
-    UBRRH = UBRRH_VALUE;
-    UBRRL = UBRRL_VALUE;
-#if USE_2X
-    UCSRA |= (1 << U2X);
-#else
-    UCSRA &= ~(1 << U2X);
-#endif
-    UCSRC = _BV(UCSZ0) | _BV(UCSZ1);    /* 8N1 */
-    UCSRB = _BV(RXEN) | _BV(RXCIE);
-    /* edge input - PD6 as input without pullup */
-    //DDRD &= ~_BV(PD6);
-    //    PORTD &= ~_BV(PD6);
-
-    GTCCR = _BV(PSR10);         /* reset prescaler */
-    TCNT1 = 0;         /* reset counter value */
-    // hitime = 0;
-    /* activate noise canceller, */
-    /* trigger on falling edge, clk/1 */
-    // lower 3 bits is div, off,1,8,64,256,1024,extfall,extris ; CS12,11,10
-    polarity = bitcnt = 0;
-    TCCR1B = _BV(ICNC1) | _BV(CS11);
-
-    // clear and enable Input Capture interrupt 
-    OCR1A = OCR1B = 32768;
-    TIFR |= _BV(ICF1) | _BV(TOV1) | _BV(OCF1A) | _BV(OCF1B);
-    TIMSK |= _BV(ICIE1);
-
-    //TIMSK |= _BV(TOIE1); 	/* enable Overflow interrupt */
-    //TIMSK |= _BV(OCIE1A);     /* enable compare match interrupt */
-    //TIMSK |= _BV(OCIE1B);     /* enable compare match interrupt */
-}
 
 /*-------------------------------------------------------------------------*/
 #if 0
@@ -151,7 +107,8 @@ ISR(TIMER1_OVF_vect)
 }
 #endif
 
-// This counts character times to find the slot to transmit.
+// This counts character times to find the slot to transmit.  
+// Each slot is 45 character times wide
 // FIXME - doesn't try to resync or otherwise avoid collisions with other devices
 ISR(TIMER1_COMPB_vect)
 {
@@ -172,6 +129,7 @@ ISR(TIMER1_COMPB_vect)
 	UCSRB |= _BV(TXEN);      /* enable tx */
 	return;
     }
+
     if( frametime >= 45*(slice+1) ) {
 	TIMSK &= ~_BV(OCIE1B);
 	UCSRB &= ~_BV(TXEN);      /* disable tx */
@@ -180,7 +138,7 @@ ISR(TIMER1_COMPB_vect)
 	return;
     }
 
-    if( !(frametime & 1) ) {
+    if( !(frametime & 1) ) { // Data Out Pacing, every other frame until done
 	unsigned char ptr = (frametime - (45*slice+1)) >> 1;
 	if( ptr < midlen )
 	    UDR = midbuf[ptr];
@@ -190,52 +148,30 @@ ISR(TIMER1_COMPB_vect)
 }
 
 // This tracks the V1 infDisplayData packet to sync the ESP cycle
-static unsigned char v1state = 0, thislen;
+static unsigned char v1state, thislen;
+const unsigned char infDisp[] = "\xaa\xd8\xea\x31\x09"; // put in Flash?
 void dostate(unsigned char val) {
-    switch( v1state ) {
-    case 0:
-	if (val == 0xaa )
+    if( v1state < 5 ) {
+	if (val == infDisp[v1state] ) {
 	    v1state++;
-	break;
-    case 1:
-	if (val == 0xd8 )
-	    v1state++;
-	else
-	    v1state = 0;
-	break;
-    case 2:
-	if (val == 0xea )
-	    v1state++;
-	else
-	    v1state = 0;
-	break;
-    case 3:
-	if (val == 0x31 )
-	    v1state++;
-	else
-	    v1state = 0;
-	break;
-    case 4:
-	if (val == 0x09 ) {
-	    v1state++;
-	    thislen = 5;
+	    thislen = v1state;
 	}
 	else
 	    v1state = 0;
-	break;
-    case 5:
-	thislen++;
-	if( val == 0xab && thislen == 15 ) {
-	    frametime = 0;
-	    OCR1B = OCR1A + BITTIME(10) + BITTIME(1) / 2;
-	    TIFR |= _BV(OCF1B);         /* clear compare match interrupt */
-	    TIMSK |= _BV(OCIE1B);       /* enable compare match interrupt */
-	    v1state = 0;
-	}
-	break;
-    default:
+	return;
+    }
+    thislen++;
+    if( val == 0xab && thislen == 15 ) {
+	frametime = 0;
 	v1state = 0;
-	break;
+#if 0
+	// FIXME maybe checksum v1 receives
+	if( ckcksum(inbuf, thislen-2) )
+	    return 0;
+#endif
+	OCR1B = OCR1A + BITTIME(10) + BITTIME(1) / 2;
+	TIFR |= _BV(OCF1B);         /* clear compare match interrupt */
+	TIMSK |= _BV(OCIE1B);       /* enable compare match interrupt */
     }
 }
 
@@ -290,7 +226,6 @@ static unsigned lastedge;
 }
 
 /*-------------------------------------------------------------------------*/
-
 int main(void)
 {
     /* power savings */
@@ -298,8 +233,41 @@ int main(void)
     DIDR = _BV(AIN0D) | _BV(AIN1D);     /* disable digital input on analog */
     ACSR = _BV(ACD);            /* disable analog comparator */
 
-    /* setup uart and icp*/
-    hardwareinit();
+    /* for testing
+    inmsgstate = 4;
+    strcpy_P( midbuf, PSTR("\xaa\xda\xe4\x41\x01\xaa\xab") );
+    midlen = 7;
+    */
+    v1state = inmsgstate = midlen = 0;
+
+    /* setup serial port */
+#include <util/setbaud.h>
+    UBRRH = UBRRH_VALUE;
+    UBRRL = UBRRL_VALUE;
+#if USE_2X
+    UCSRA |= (1 << U2X);
+#else
+    UCSRA &= ~(1 << U2X);
+#endif
+    UCSRC = _BV(UCSZ0) | _BV(UCSZ1);    /* 8N1 */
+    UCSRB = _BV(RXEN) | _BV(RXCIE);
+
+    GTCCR = _BV(PSR10);         /* reset prescaler */
+    TCNT1 = 0;         /* reset counter value */
+    // hitime = 0;
+    /* activate noise canceller, */
+    /* trigger on falling edge, clk/1 */
+    // lower 3 bits is div, off,1,8,64,256,1024,extfall,extris ; CS12,11,10
+    polarity = bitcnt = 0;
+    TCCR1B = _BV(ICNC1) | _BV(CS11);
+
+    // clear and enable Input Capture interrupt 
+    OCR1A = OCR1B = 32768;
+    TIFR |= _BV(ICF1) | _BV(TOV1) | _BV(OCF1A) | _BV(OCF1B);
+    TIMSK |= _BV(ICIE1);
+
+    //TIMSK |= _BV(TOIE1); 	/* enable Overflow interrupt */
+
     sei();
 
     set_sleep_mode(SLEEP_MODE_IDLE);
