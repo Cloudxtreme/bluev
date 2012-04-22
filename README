@@ -1,6 +1,7 @@
 Source code and electronic designs are licensed under the GNU General Public License Version 3
 
-This is a Valentine V1 ESP interface based on the ATtiny4131 running at 20Mhz
+This is a Valentine V1 ESP interface based on the ATtiny4313 running at 20Mhz
+(Note: The ATtiny2313 should also work as I'm not using more than half the RAM or Flash)
 
 The hard part about implementing ESP packet sends is that the UART needs to be switched in and out, and the bytes have to be paced according to specific timing.  This is designed to do that hard, subtle, fiddly timing stuff.  Just send it a correct frame (from SOF to EOF with valid 3rd party device ID and checksum) and it does the rest.
 
@@ -44,3 +45,11 @@ $ echo -ne "\xaa\xda\xe4\x32\x01\x9b\xab" >/dev/ttyUSB0
 Display goes off
 $ echo -ne "\xaa\xda\xe4\x33\x01\x9c\xab" >/dev/ttyUSB0
 Display goes on
+
+TODO:
+
+TS Holdoff (infDisplayData Aux0 (stream byte[10]) bit 1 (0x02) says if accs are allowed to send)
+Do checksumming of BT incoming as the data is received (avoid overly long interrupt at end)
+Better sync / collision avoidance with other things on the bus - stop bit routine delays start of slice?
+v1send - add option to ask for version for display, audio, savvy; (factory reset?)
+v1send - write user bytes, sweep stuff???
