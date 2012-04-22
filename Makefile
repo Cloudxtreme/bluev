@@ -1,7 +1,7 @@
 HOSTCC		= gcc -Wall -O6
 
-PRG		= j1850-full
-OBJ		= main.o
+PRG		= bluev
+OBJ		= bluev.o
 MCU		= attiny4313
 OPTIMIZE	= -Os
 
@@ -30,7 +30,7 @@ v1send: v1send.c
 $(PRG).elf: $(OBJ)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBS)
 
-j1850-full.o: j1850-full.c
+bluev.o: bluev.c
 
 clean:
 	rm -rf *.o
