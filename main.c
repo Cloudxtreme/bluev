@@ -21,31 +21,12 @@
 
 /*-------------------------------------------------------------------------*/
 #define MIDSIZE 24
-static unsigned char midbuf[MIDSIZE], midlen;
+static unsigned char midbuf[MIDSIZE], midlen, midcks;
 static unsigned int frametime;
 static unsigned char slice = 4;
 
-int ckcksum( unsigned char *buf, unsigned char len ) {
-    unsigned char ix, cks = 0;
-    for( ix = 0; ix < len; ix++ )
-	cks += buf[ix];
-    return cks != buf[len];
-}
-
 // Received character from bluetooth
 static unsigned char inmsgstate;
-static int validate() {
-    // device send ID should be valid for 3rd party
-    unsigned char sl = midbuf[2] & 0x0f;
-    if( sl < 3 || sl > 5 )
-	return 0;
-    // checksum test - note midlen is one short since this is called before 0xab is stored
-    if( ckcksum(midbuf, midlen-1) )
-	return 0;
-    slice = sl;
-    return 1;
-}
-
 ISR(USART_RX_vect)
 {
     unsigned char c = UDR;
@@ -53,6 +34,7 @@ ISR(USART_RX_vect)
     switch( inmsgstate ) {
     case 0:
 	if (c == 0xaa) {
+	    midcks = 0;
 	    midlen = 0;
 	    inmsgstate++;
 	}
@@ -64,7 +46,7 @@ ISR(USART_RX_vect)
 	    inmsgstate = 0;
 	break;
     case 2:
-	if ((c & 0xf0) == 0xe0)
+	if ((c & 0xf0) == 0xe0 && (c & 0x0f) >= 3 && (c & 0x0f) <= 5) // valid source
 	    inmsgstate++;
 	else
 	    inmsgstate = 0;
@@ -73,13 +55,19 @@ ISR(USART_RX_vect)
 	if( midlen == 4 && c > 22 ) { // length
 	    inmsgstate = 0;
 	    break;
-	}	    
-	if ( c == 0xab && midlen > 4 && midbuf[4] + 5 == midlen) {
-	    midbuf[midlen] = c; // avoid race 
-	    if( validate() )
-		inmsgstate = 4;
-	    else
+	}
+	if( midlen < 5 )
+	    break;
+	if ( midbuf[4] + 4 == midlen) { // checksum byte
+	    if( midcks != c )
 		inmsgstate = 0;
+	    break;
+	}
+
+	if ( c == 0xab && midbuf[4] + 5 == midlen) {
+	    midbuf[midlen] = c; // avoid race 
+	    slice = midbuf[2] & 0x0f;
+	    inmsgstate = 4;
 	}
 	break;
     case 4: // waiting for transmit
@@ -87,8 +75,10 @@ ISR(USART_RX_vect)
     default:
 	break;
     }
-    if( inmsgstate && midlen < MIDSIZE )
+    if( inmsgstate && midlen < MIDSIZE ) {
 	midbuf[midlen++] = c;
+	midcks += c;
+    }
     else
 	inmsgstate = 0;
 }
@@ -151,6 +141,7 @@ ISR(TIMER1_COMPB_vect)
 static unsigned char v1state, thislen;
 const unsigned char infDisp[] = "\xaa\xd8\xea\x31\x09"; // put in Flash?
 void dostate(unsigned char val) {
+    // FIXME - hardcoded packet length
     if( v1state < 5 ) {
 	if (val == infDisp[v1state] ) {
 	    v1state++;
@@ -161,14 +152,18 @@ void dostate(unsigned char val) {
 	return;
     }
     thislen++;
+    if( thislen == 11 && (val & 2) ) { // V1 TimeSlice holdoff
+	v1state = 0;
+	return;
+    }
+#if 0
+    // FIXME? maybe check checksum v1 receives
+    if( thislen == 14 && val != ckcksum(inbuf, 14) )
+	return 0;
+#endif
     if( val == 0xab && thislen == 15 ) {
 	frametime = 0;
 	v1state = 0;
-#if 0
-	// FIXME maybe checksum v1 receives
-	if( ckcksum(inbuf, thislen-2) )
-	    return 0;
-#endif
 	OCR1B = OCR1A + BITTIME(10) + BITTIME(1) / 2;
 	TIFR |= _BV(OCF1B);         /* clear compare match interrupt */
 	TIMSK |= _BV(OCIE1B);       /* enable compare match interrupt */

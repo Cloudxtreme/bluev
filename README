@@ -48,8 +48,6 @@ Display goes on
 
 TODO:
 
-TS Holdoff (infDisplayData Aux0 (stream byte[10]) bit 1 (0x02) says if accs are allowed to send)
-Do checksumming of BT incoming as the data is received (avoid overly long interrupt at end)
 Better sync / collision avoidance with other things on the bus - stop bit routine delays start of slice?
 v1send - add option to ask for version for display, audio, savvy; (factory reset?)
 v1send - write user bytes, sweep stuff???
