@@ -5,6 +5,10 @@ This is a Valentine V1 ESP interface based on the ATtiny4313 running at 20Mhz
 
 (Note: The ATtiny2313 should also work as I'm not using more than half the RAM or Flash)
 
+(Note: I don't have a legacy V1 nor one that does NOT support
+checksums, so this is only for the latest version of the V1 since I
+can only test what I have or have access to)
+
 The hard part about implementing ESP packet sends is that the UART
 needs to be switched in and out, and the bytes have to be paced
 according to specific timing, and there is a holdoff (don't send) bit.
@@ -64,9 +68,23 @@ v1send will send simple commands, mainly to set something, e.g. option 8 turns t
 
 I usually use "./v1reshark | uniq &", then do v1send to inquire or change things.
 
+I'm not doing legacy mode since it would require some switching, thus
+more hardware, and there isn't much advantage to just having the
+display status.  For legacy, any serial port (including bluetooth
+module) with just the pullup running at 19200 baud can decode the
+stream by seeing if the characters returned are greater or less than
+0xe0 (generally you get 0xc0 and 0xf8).  The new ATtiny1634 has two
+UARTs so it would make that much easier, but for now...
+
+(If I were to do something it would be an ESP emulator that would
+convert the legacy bitstream into the infDisplay packet as close as
+possible, and *maybe* emulate mute on and if possible modulate the
+pullup to allow the main display to turn on and off)
+
 TODO:
 
-Better sync / collision avoidance with other things on the bus - stop bit routine delays start of slice?
+Better sync / collision avoidance with other things on the bus - stop bit routine delays start of slice (first pass code ready)?
+Move to crystal that is an exact multiple of the baud or at least closer?
 v1send - add option to ask for version for display, audio, savvy; (factory reset?)
 v1send - write user bytes, sweep stuff???
-multimode? - multiple packets, one each in the 3, 4, 5 slice.
+multimode? - multiple packets, one each in the 3, 4, 5 slice
