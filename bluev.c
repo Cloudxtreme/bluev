@@ -1,99 +1,82 @@
-#include <inttypes.h>
 #include <avr/io.h>
 #include <avr/interrupt.h>
 #include <avr/sleep.h>
 #include <avr/pgmspace.h>
-#include <util/atomic.h>
-#include <stdio.h>
-#include <ctype.h>
 #include <string.h>
 
 #define F_CPU  	20000000
 #define BAUD 	57600
 
-#include <util/delay.h>
-
-/*-------------------------------------------------------------------------*/
 #define PRESCALE1 8
-
-/* timing formulas */
 #define BITTIME(x)		( ((x) * F_CPU) / PRESCALE1 / BAUD)
 
 /*-------------------------------------------------------------------------*/
-#define MIDSIZE 24
-static unsigned char midbuf[MIDSIZE], midlen, midcks;
-static unsigned int frametime;
+#define INMSGSIZE 24
+static unsigned char inmsgbuf[INMSGSIZE], inmsglen, inmsgcks;
 static unsigned char slice = 4;
 
 // Received character from bluetooth
 static unsigned char inmsgstate;
+// Save off characters until a valid V1 ESP packet is complete
 ISR(USART_RX_vect)
 {
     unsigned char c = UDR;
 
     switch (inmsgstate) {
-    case 0:
+    case 0: // SOF
         if (c == 0xaa) {
-            midcks = 0;
-            midlen = 0;
+            inmsgcks = 0;
+            inmsglen = 0;
             inmsgstate++;
         }
         break;
-    case 1:
+    case 1: // destination
         if ((c & 0xf0) == 0xd0)
             inmsgstate++;
         else
             inmsgstate = 0;
         break;
-    case 2:
+    case 2: // source
         if ((c & 0xf0) == 0xe0 && (c & 0x0f) >= 3 && (c & 0x0f) <= 5)   // valid source
             inmsgstate++;
         else
             inmsgstate = 0;
         break;
-    case 3:
-        if (midlen == 4 && c > 22) {    // length
+    case 3: // ID through EOF
+        if (inmsglen == 4 && c > 20) {    // validate length
             inmsgstate = 0;
             break;
         }
-        if (midlen < 5)
+        if (inmsglen < 5) // later tests require length
             break;
-        if (midbuf[4] + 4 == midlen) {  // checksum byte
-            if (midcks != c)
+        if (inmsgbuf[4] + 4 == inmsglen) {  // checksum byte
+            if (inmsgcks != c)
                 inmsgstate = 0;
             break;
         }
-
-        if (c == 0xab && midbuf[4] + 5 == midlen) {
-            midbuf[midlen] = c; // avoid race 
-            slice = midbuf[2] & 0x0f;
+        if (c == 0xab && inmsgbuf[4] + 5 == inmsglen) { // EOF - queue for send
+            inmsgbuf[inmsglen] = c; // avoid race 
+            slice = inmsgbuf[2] & 0x0f;
             inmsgstate = 4;
         }
         break;
-    case 4:                    // waiting for transmit
+    case 4:                    // waiting for transmit - discard
         return;
     default:
         break;
     }
-    if (inmsgstate && midlen < MIDSIZE) {
-        midbuf[midlen++] = c;
-        midcks += c;
+    if (inmsgstate && inmsglen < INMSGSIZE) {
+        inmsgbuf[inmsglen++] = c;
+        inmsgcks += c;
     }
-    else
+    else // overflow - shouldn't happen given state machine
         inmsgstate = 0;
 }
 
 /*-------------------------------------------------------------------------*/
-//static unsigned int hitime;
-
-#if 0
-ISR(TIMER1_OVF_vect)
-{
-    hitime++;
-}
-#endif
-
 static unsigned int bitcnt;
+static unsigned int frametime;
+// Time Slice processor
 // This counts character times to find the slot to transmit.  
 // Each slot is 45 character times wide
 // FIXME - doesn't try to resync or otherwise avoid collisions with other devices
@@ -106,26 +89,26 @@ ISR(TIMER1_COMPB_vect)
         return;
 
     if (inmsgstate != 4) {      // nothing for this frame
-        TIMSK &= ~_BV(OCIE1B);
-        UCSRB &= ~_BV(TXEN);    /* disable tx */
+        TIMSK &= ~_BV(OCIE1B);  // slice processor off
+        UCSRB &= ~_BV(TXEN);    // TX off - just in case
         frametime = 0;
         return;
     }
 
-    if (frametime == 45 * slice) {
+    if (frametime == 45 * slice) { // At current time slice
 #if 0
         // Holdoff for late previous time slice
         if (bitcnt)
             frametime--;
         else
 #endif
-            UCSRB |= _BV(TXEN); /* enable tx */
+            UCSRB |= _BV(TXEN); // TX on
         return;
     }
 
-    if (frametime >= 45 * (slice + 1)) {
-        TIMSK &= ~_BV(OCIE1B);
-        UCSRB &= ~_BV(TXEN);    /* disable tx */
+    if (frametime >= 45 * (slice + 1)) {  // end of time slice
+        TIMSK &= ~_BV(OCIE1B);  // slice processor off
+        UCSRB &= ~_BV(TXEN);    // TX off
         frametime = 0;
         inmsgstate = 0;
         return;
@@ -133,10 +116,10 @@ ISR(TIMER1_COMPB_vect)
 
     if (!(frametime & 1)) {     // Data Out Pacing, every other frame until done
         unsigned char ptr = (frametime - (45 * slice + 1)) >> 1;
-        if (ptr < midlen)
-            UDR = midbuf[ptr];
-        if (ptr > midlen)
-            UCSRB &= ~_BV(TXEN);        /* disable tx */
+        if (ptr < inmsglen)
+            UDR = inmsgbuf[ptr];
+        if (ptr > inmsglen)
+            UCSRB &= ~_BV(TXEN);	// TX off
     }
 }
 
@@ -146,6 +129,7 @@ const unsigned char infDisp[] = "\xaa\xd8\xea\x31\x09"; // put in Flash?
 void dostate(unsigned char val)
 {
     // FIXME - hardcoded packet length
+    // on the fly comparison of the first 5 bytes of the infDisplay packet
     if (v1state < 5) {
         if (val == infDisp[v1state]) {
             v1state++;
@@ -161,11 +145,11 @@ void dostate(unsigned char val)
         return;
     }
 #if 0
-    // FIXME? maybe check checksum v1 receives
+    // FIXME? maybe validate checksum?
     if (thislen == 14 && val != ckcksum(inbuf, 14))
         return 0;
 #endif
-    if (val == 0xab && thislen == 15) {
+    if (val == 0xab && thislen == 15) {	// EOF - start time slice sync
         frametime = 0;
         v1state = 0;
         OCR1B = OCR1A + BITTIME(10) + BITTIME(1) / 2;
@@ -174,20 +158,19 @@ void dostate(unsigned char val)
     }
 }
 
-static unsigned char outchar;
-static unsigned char polarity;
+static unsigned char outchar; // bitbang UART receive register
+static unsigned char polarity; // which edge are we looking for
 //Stopbit for software UART
 ISR(TIMER1_COMPA_vect)
 {
     TIMSK &= ~_BV(OCIE1A);      // disable
     if (!polarity) {            // not break condition
-        while (bitcnt < 10) {
+        while (bitcnt < 10) {   // fill in one bits up to stop bit
             bitcnt++;
             outchar >>= 1;
             outchar |= 0x80;
         }
         dostate(outchar);
-        //      UDR = 0x30 + thislen;
     }
     else {                      // break, reset things for next start bit
         TCCR1B &= ~_BV(ICES1);
@@ -215,7 +198,7 @@ ISR(TIMER1_CAPT_vect)
     unsigned width = thisedge - lastedge;
     lastedge = thisedge;
     width += BITTIME(1) / 2;    // round up
-    while (width >= BITTIME(1)) {
+    while (width >= BITTIME(1)) {	// Shift in bits based on width
         width -= BITTIME(1);
         bitcnt++;
         outchar >>= 1;
@@ -235,12 +218,12 @@ int main(void)
 
     /* for testing
        inmsgstate = 4;
-       strcpy_P( midbuf, PSTR("\xaa\xda\xe4\x41\x01\xaa\xab") );
-       midlen = 7;
+       strcpy_P( inmsgbuf, PSTR("\xaa\xda\xe4\x41\x01\xaa\xab") );
+       inmsglen = 7;
      */
-    v1state = inmsgstate = midlen = 0;
+    v1state = inmsgstate = inmsglen = 0;
 
-    /* setup serial port */
+    // UART init
 #include <util/setbaud.h>
     UBRRH = UBRRH_VALUE;
     UBRRL = UBRRL_VALUE;
@@ -249,29 +232,24 @@ int main(void)
 #else
     UCSRA &= ~(1 << U2X);
 #endif
-    UCSRC = _BV(UCSZ0) | _BV(UCSZ1);    /* 8N1 */
-    UCSRB = _BV(RXEN) | _BV(RXCIE);
+    UCSRC = _BV(UCSZ0) | _BV(UCSZ1);    // 8N1
+    UCSRB = _BV(RXEN) | _BV(RXCIE);	// Enable Receive
 
+    // Timer init
     GTCCR = _BV(PSR10);         /* reset prescaler */
     TCNT1 = 0;                  /* reset counter value */
-    // hitime = 0;
-    /* activate noise canceller, */
-    /* trigger on falling edge, clk/1 */
-    // lower 3 bits is div, off,1,8,64,256,1024,extfall,extris ; CS12,11,10
     polarity = bitcnt = 0;
+
+    // trigger on falling edge (default), noise cancel
+    // lower 3 bits is div, off,1,8,64,256,1024,extfall,extris ; CS12,11,10
     TCCR1B = _BV(ICNC1) | _BV(CS11);
 
     // clear and enable Input Capture interrupt 
-    OCR1A = OCR1B = 32768;
     TIFR |= _BV(ICF1) | _BV(TOV1) | _BV(OCF1A) | _BV(OCF1B);
-    TIMSK |= _BV(ICIE1);
+    TIMSK |= _BV(ICIE1); // enable input capture only
 
-    //TIMSK |= _BV(TOIE1);      /* enable Overflow interrupt */
-
-    sei();
-
-    set_sleep_mode(SLEEP_MODE_IDLE);
+    sei(); // enable interrupts
+    // and sleep between events
     for (;;)
         sleep_mode();
-
 }
