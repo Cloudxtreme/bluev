@@ -15,6 +15,12 @@
 static unsigned char inmsgbuf[INMSGSIZE], inmsglen, inmsgcks;
 static unsigned char slice = 4;
 
+//Early ESP with no checksum support - untested, uncomment next line
+//#define NOCKS
+
+#ifdef NOCKS
+static unsigned char nochecksum = 0;
+#endif
 // Received character from bluetooth
 static unsigned char inmsgstate;
 // Save off characters until a valid V1 ESP packet is complete
@@ -49,6 +55,9 @@ ISR(USART_RX_vect)
         }
         if (inmsglen < 5) // later tests require length
             break;
+#ifdef NOCKS
+	if (!nochecksum)
+#endif
         if (inmsgbuf[4] + 4 == inmsglen) {  // checksum byte
             if (inmsgcks != c)
                 inmsgstate = 0;
@@ -96,7 +105,7 @@ ISR(TIMER1_COMPB_vect)
     }
 
     if (frametime == 45 * slice) { // At current time slice
-#if 0
+#if 1
         // Holdoff for late previous time slice
         if (bitcnt)
             frametime--;
@@ -125,16 +134,29 @@ ISR(TIMER1_COMPB_vect)
 
 // This tracks the V1 infDisplayData packet to sync the ESP cycle
 static unsigned char v1state, thislen;
-const unsigned char infDisp[] = "\xaa\xd8\xea\x31\x09"; // put in Flash?
+#ifndef NOCKS
+const 
+#endif
+unsigned char infDisp[] = "\xaa\xd8\xea\x31\x09"; // put in Flash?
 void dostate(unsigned char val)
 {
     // FIXME - hardcoded packet length
     // on the fly comparison of the first 5 bytes of the infDisplay packet
     if (v1state < 5) {
-        if (val == infDisp[v1state]) {
             v1state++;
+#ifdef NOCKS
+	if( v1state == 3 ) {
+	    if( val == 0xea )
+		infDisp[4] = 9, nochecksum = 0;
+	    else if( val == 0xe9 )
+		infDisp[4] = 8, nochecksum = 1;
+	    else
+		v1state = 0;
+	    return;
+	}
+#endif
+        if (val == infDisp[v1state])
             thislen = v1state;
-        }
         else
             v1state = 0;
         return;
@@ -149,13 +171,16 @@ void dostate(unsigned char val)
     if (thislen == 14 && val != ckcksum(inbuf, 14))
         return 0;
 #endif
-    if (val == 0xab && thislen == 15) {	// EOF - start time slice sync
+    if (val == 0xab && thislen == 6 + infDisp[4]) {	// EOF - start time slice sync
         frametime = 0;
         v1state = 0;
         OCR1B = OCR1A + BITTIME(10) + BITTIME(1) / 2;
         TIFR |= _BV(OCF1B);     /* clear compare match interrupt */
         TIMSK |= _BV(OCIE1B);   /* enable compare match interrupt */
+	return;
     }
+    if( thislen > 6 + infDisp[4] ) // too long
+	v1state = 0;
 }
 
 static unsigned char outchar; // bitbang UART receive register
