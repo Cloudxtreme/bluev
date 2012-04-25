@@ -1,17 +1,27 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+
+// 12345678AbCdEFGHIJuXtL-- ------------------------
+// byte 0, bit 0 - 7, byte 1, etc.
+
 int main(int argc, char *argv[])
 {
     unsigned char buf[24], len;
+    int ret;
     FILE *fp = fopen("/dev/ttyUSB0", "rb");
-
+    if( !fp )
+	fp = fopen("/dev/rfcomm0", "rb");
+    if( !fp)
+	return -1;
     for (;;) {
         printf("\n");
         len = 0;
         buf[0] = 0;
         while (buf[0] != 0xaa)
-            while (1 != fread(&buf[0], 1, 1, fp));
+            while (1 != (ret = fread(&buf[0], 1, 1, fp)))
+		if( ret < 0 )
+		    return ret;
 
         printf("SOF-");
 

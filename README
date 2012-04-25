@@ -88,3 +88,4 @@ Move to crystal that is an exact multiple of the baud or at least closer?
 v1send - add option to ask for version for display, audio, savvy; (factory reset?)
 v1send - write user bytes, sweep stuff???
 multimode? - multiple packets, one each in the 3, 4, 5 slice
+Yes, I know I don't have decoupling caps - but I don't need them on the breadboard, but will add them on the planned surface mount version.
