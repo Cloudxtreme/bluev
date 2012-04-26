@@ -6,8 +6,8 @@ This is a Valentine V1 ESP interface based on the ATtiny4313 running at 20Mhz
 (Note: The ATtiny2313 should also work as I'm not using more than half the RAM or Flash)
 
 (Note: I don't have a legacy V1 nor one that does NOT support
-checksums, so this is only for the latest version of the V1 since I
-can only test what I have or have access to)
+checksums, so this is only tested for the latest version of the V1
+since I can only test what I have or have access to)
 
 The hard part about implementing ESP packet sends is that the UART
 needs to be switched in and out, and the bytes have to be paced
@@ -81,11 +81,14 @@ convert the legacy bitstream into the infDisplay packet as close as
 possible, and *maybe* emulate mute on and if possible modulate the
 pullup to allow the main display to turn on and off)
 
+Note there is a "#define ANYSLICE" that overrides the checking for 3rd
+party source id 3-5.  I can simulate a concealed display by sending
+0x61 packets which will turn off the main display.
+
 TODO:
 
-Better sync / collision avoidance with other things on the bus - stop bit routine delays start of slice (first pass code ready)?
-Move to crystal that is an exact multiple of the baud or at least closer?
-v1send - add option to ask for version for display, audio, savvy; (factory reset?)
+Move to crystal that is an exact multiple of the baud 18.34Mhz 10ppm?
+v1send - add option to ask for (factory reset?)
 v1send - write user bytes, sweep stuff???
 multimode? - multiple packets, one each in the 3, 4, 5 slice
 Yes, I know I don't have decoupling caps - but I don't need them on the breadboard, but will add them on the planned surface mount version.

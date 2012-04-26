@@ -15,12 +15,8 @@
 static unsigned char inmsgbuf[INMSGSIZE], inmsglen, inmsgcks;
 static unsigned char slice = 4;
 
-//Early ESP with no checksum support - untested, uncomment next line
-//#define NOCKS
-
-#ifdef NOCKS
 static unsigned char nochecksum = 0;
-#endif
+#define ANYSLICE
 // Received character from bluetooth
 static unsigned char inmsgstate;
 // Save off characters until a valid V1 ESP packet is complete
@@ -43,7 +39,11 @@ ISR(USART_RX_vect)
             inmsgstate = 0;
         break;
     case 2:                    // source
-        if ((c & 0xf0) == 0xe0 && (c & 0x0f) >= 3 && (c & 0x0f) <= 5)   // valid source
+        if ((c & 0xf0) == 0xe0 
+#ifndef ANYSLICE
+	    && (c & 0x0f) <= 5 && (c & 0x0f) >= 3
+#endif
+	    )   // valid source ?
             inmsgstate++;
         else
             inmsgstate = 0;
@@ -55,9 +55,8 @@ ISR(USART_RX_vect)
         }
         if (inmsglen < 5)       // later tests require length
             break;
-#ifdef NOCKS
+
         if (!nochecksum)
-#endif
             if (inmsgbuf[4] + 4 == inmsglen) {  // checksum byte
                 if (inmsgcks != c)
                     inmsgstate = 0;
@@ -104,13 +103,16 @@ ISR(TIMER1_COMPB_vect)
         return;
     }
 
-    if (frametime == 45 * slice) {      // At current time slice
-#if 1
+    if (
+#ifdef ANYSLICE
+	(slice == 0 && frametime == 1) || 
+#endif
+	frametime == 45 * slice) {      // At current time slice
+
         // Holdoff for late previous time slice
         if (bitcnt)
             frametime--;
         else
-#endif
             UCSRB |= _BV(TXEN); // TX on
         return;
     }
@@ -134,9 +136,6 @@ ISR(TIMER1_COMPB_vect)
 
 // This tracks the V1 infDisplayData packet to sync the ESP cycle
 static unsigned char v1state, thislen;
-#ifndef NOCKS
-const
-#endif
 unsigned char infDisp[] = "\xaa\xd8\xea\x31\x09";       // put in Flash?
 void dostate(unsigned char val)
 {
@@ -144,8 +143,7 @@ void dostate(unsigned char val)
     // on the fly comparison of the first 5 bytes of the infDisplay packet
     if (v1state < 5) {
         v1state++;
-#ifdef NOCKS
-        if (v1state == 3) {
+        if (v1state == 3) { // Checksum or not?
             if (val == 0xea)
                 infDisp[4] = 9, nochecksum = 0;
             else if (val == 0xe9)
@@ -154,7 +152,6 @@ void dostate(unsigned char val)
                 v1state = 0;
             return;
         }
-#endif
         if (val == infDisp[v1state-1])
             thislen = v1state;
         else
