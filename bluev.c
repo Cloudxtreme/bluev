@@ -29,42 +29,42 @@ ISR(USART_RX_vect)
     unsigned char c = UDR;
 
     switch (inmsgstate) {
-    case 0: // SOF
+    case 0:                    // SOF
         if (c == 0xaa) {
             inmsgcks = 0;
             inmsglen = 0;
             inmsgstate++;
         }
         break;
-    case 1: // destination
+    case 1:                    // destination
         if ((c & 0xf0) == 0xd0)
             inmsgstate++;
         else
             inmsgstate = 0;
         break;
-    case 2: // source
+    case 2:                    // source
         if ((c & 0xf0) == 0xe0 && (c & 0x0f) >= 3 && (c & 0x0f) <= 5)   // valid source
             inmsgstate++;
         else
             inmsgstate = 0;
         break;
-    case 3: // ID through EOF
-        if (inmsglen == 4 && c > 20) {    // validate length
+    case 3:                    // ID through EOF
+        if (inmsglen == 4 && c > 20) {  // validate length
             inmsgstate = 0;
             break;
         }
-        if (inmsglen < 5) // later tests require length
+        if (inmsglen < 5)       // later tests require length
             break;
 #ifdef NOCKS
-	if (!nochecksum)
+        if (!nochecksum)
 #endif
-        if (inmsgbuf[4] + 4 == inmsglen) {  // checksum byte
-            if (inmsgcks != c)
-                inmsgstate = 0;
-            break;
-        }
+            if (inmsgbuf[4] + 4 == inmsglen) {  // checksum byte
+                if (inmsgcks != c)
+                    inmsgstate = 0;
+                break;
+            }
         if (c == 0xab && inmsgbuf[4] + 5 == inmsglen) { // EOF - queue for send
-            inmsgbuf[inmsglen] = c; // avoid race 
+            inmsgbuf[inmsglen] = c;     // avoid race 
             slice = inmsgbuf[2] & 0x0f;
             inmsgstate = 4;
         }
@@ -78,7 +78,7 @@ ISR(USART_RX_vect)
         inmsgbuf[inmsglen++] = c;
         inmsgcks += c;
     }
-    else // overflow - shouldn't happen given state machine
+    else                        // overflow - shouldn't happen given state machine
         inmsgstate = 0;
 }
 
@@ -104,7 +104,7 @@ ISR(TIMER1_COMPB_vect)
         return;
     }
 
-    if (frametime == 45 * slice) { // At current time slice
+    if (frametime == 45 * slice) {      // At current time slice
 #if 1
         // Holdoff for late previous time slice
         if (bitcnt)
@@ -115,7 +115,7 @@ ISR(TIMER1_COMPB_vect)
         return;
     }
 
-    if (frametime >= 45 * (slice + 1)) {  // end of time slice
+    if (frametime >= 45 * (slice + 1)) {        // end of time slice
         TIMSK &= ~_BV(OCIE1B);  // slice processor off
         UCSRB &= ~_BV(TXEN);    // TX off
         frametime = 0;
@@ -128,34 +128,34 @@ ISR(TIMER1_COMPB_vect)
         if (ptr < inmsglen)
             UDR = inmsgbuf[ptr];
         if (ptr > inmsglen)
-            UCSRB &= ~_BV(TXEN);	// TX off
+            UCSRB &= ~_BV(TXEN);        // TX off
     }
 }
 
 // This tracks the V1 infDisplayData packet to sync the ESP cycle
 static unsigned char v1state, thislen;
 #ifndef NOCKS
-const 
+const
 #endif
-unsigned char infDisp[] = "\xaa\xd8\xea\x31\x09"; // put in Flash?
+unsigned char infDisp[] = "\xaa\xd8\xea\x31\x09";       // put in Flash?
 void dostate(unsigned char val)
 {
     // FIXME - hardcoded packet length
     // on the fly comparison of the first 5 bytes of the infDisplay packet
     if (v1state < 5) {
-            v1state++;
+        v1state++;
 #ifdef NOCKS
-	if( v1state == 3 ) {
-	    if( val == 0xea )
-		infDisp[4] = 9, nochecksum = 0;
-	    else if( val == 0xe9 )
-		infDisp[4] = 8, nochecksum = 1;
-	    else
-		v1state = 0;
-	    return;
-	}
+        if (v1state == 3) {
+            if (val == 0xea)
+                infDisp[4] = 9, nochecksum = 0;
+            else if (val == 0xe9)
+                infDisp[4] = 8, nochecksum = 1;
+            else
+                v1state = 0;
+            return;
+        }
 #endif
-        if (val == infDisp[v1state])
+        if (val == infDisp[v1state-1])
             thislen = v1state;
         else
             v1state = 0;
@@ -171,20 +171,20 @@ void dostate(unsigned char val)
     if (thislen == 14 && val != ckcksum(inbuf, 14))
         return 0;
 #endif
-    if (val == 0xab && thislen == 6 + infDisp[4]) {	// EOF - start time slice sync
+    if (val == 0xab && thislen == 6 + infDisp[4]) {     // EOF - start time slice sync
         frametime = 0;
         v1state = 0;
         OCR1B = OCR1A + BITTIME(10) + BITTIME(1) / 2;
         TIFR |= _BV(OCF1B);     /* clear compare match interrupt */
         TIMSK |= _BV(OCIE1B);   /* enable compare match interrupt */
-	return;
+        return;
     }
-    if( thislen > 6 + infDisp[4] ) // too long
-	v1state = 0;
+    if (thislen > 6 + infDisp[4])       // too long
+        v1state = 0;
 }
 
-static unsigned char outchar; // bitbang UART receive register
-static unsigned char polarity; // which edge are we looking for
+static unsigned char outchar;   // bitbang UART receive register
+static unsigned char polarity;  // which edge are we looking for
 //Stopbit for software UART
 ISR(TIMER1_COMPA_vect)
 {
@@ -223,7 +223,7 @@ ISR(TIMER1_CAPT_vect)
     unsigned width = thisedge - lastedge;
     lastedge = thisedge;
     width += BITTIME(1) / 2;    // round up
-    while (width >= BITTIME(1)) {	// Shift in bits based on width
+    while (width >= BITTIME(1)) {       // Shift in bits based on width
         width -= BITTIME(1);
         bitcnt++;
         outchar >>= 1;
@@ -258,7 +258,7 @@ int main(void)
     UCSRA &= ~(1 << U2X);
 #endif
     UCSRC = _BV(UCSZ0) | _BV(UCSZ1);    // 8N1
-    UCSRB = _BV(RXEN) | _BV(RXCIE);	// Enable Receive
+    UCSRB = _BV(RXEN) | _BV(RXCIE);     // Enable Receive
 
     // Timer init
     GTCCR = _BV(PSR10);         /* reset prescaler */
@@ -271,10 +271,11 @@ int main(void)
 
     // clear and enable Input Capture interrupt 
     TIFR |= _BV(ICF1) | _BV(TOV1) | _BV(OCF1A) | _BV(OCF1B);
-    TIMSK |= _BV(ICIE1); // enable input capture only
+    TIMSK |= _BV(ICIE1);        // enable input capture only
 
-    sei(); // enable interrupts
+    sei();                      // enable interrupts
     // and sleep between events
+    set_sleep_mode(SLEEP_MODE_IDLE);
     for (;;)
         sleep_mode();
 }
