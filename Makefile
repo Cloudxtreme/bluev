@@ -19,13 +19,16 @@ LDFLAGS		= -Wl,-Map,$(PRG).map
 OBJCOPY		= avr-objcopy
 OBJDUMP		= avr-objdump
 
-all: $(PRG).elf lst text eeprom size v1reShark v1send
+all: $(PRG).elf lst text eeprom size v1reShark v1send v1test
 
 v1reShark: v1reShark.c
 	$(HOSTCC) v1reShark.c -o $@
 
 v1send: v1send.c
 	$(HOSTCC) v1send.c -o $@
+
+v1test: v1test.c
+	$(HOSTCC) v1test.c -o $@
 
 $(PRG).elf: $(OBJ)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBS)
@@ -37,7 +40,7 @@ clean:
 	rm -rf $(PRG).elf $(PRG).bin $(PRG).hex $(PRG).srec
 	rm -rf $(PRG)_eeprom.bin $(PRG)_eeprom.hex $(PRG)_eeprom.srec
 	rm -rf *.lst *.map $(EXTRA_CLEAN_FILES)
-	rm -rf v1reShark v1send
+	rm -rf v1reShark v1send v1test
 
 lst:  $(PRG).lst
 
