@@ -139,20 +139,29 @@ int readpkt(unsigned char *buf)
         }
         else if (buf[3] == RESPALERTDATA) {
 	    // copy to temp until index == total, then move to out and inc
-	    memcpy( v1alerttemp[(buf[5]>>4)-1], buf+5, 7 );
-	    if( buf[5]>>4 == (buf[5] & 15) ) {
-		memcpy( v1alertout, v1alerttemp, 7*(buf[5]&15) );
+	    if( !buf[5] ) { // no alerts
+		memset( v1alertout, 0, 7 );
 		v1alerts++;
+	    }
+	    else { // accumulate and copy block
+		memcpy( v1alerttemp[(buf[5]>>4)-1], buf+5, 7 );
+		if( buf[5]>>4 == (buf[5] & 15) ) {
+		    memcpy( v1alertout, v1alerttemp, 7*(buf[5]&15) );
+		    v1alerts++;
+		}
 	    }
         }
         else if (buf[3] == RESPDATARECEIVED) {
 	    cddr++;
         }
         else {
+#if 0
+	    // show nonstream traffic
             printf("r: %d:", len );
 	    for( ix = 1 ; ix < len - 1 ; ix++ )
 		printf( " %02x", buf[ix]);
 	    printf( "\n" );
+#endif
 	}
         return len;
     }
@@ -180,7 +189,7 @@ int sendcmd(unsigned char *thiscmd, unsigned char resp, unsigned char *buf)
         return 0;
 
     // look for response
-#define RESPTIME 50
+#define RESPTIME 20
     for (ix = 0; ix < RESPTIME; ix++) {
         ret = readpkt(buf);
         if (ret < 6)
@@ -194,11 +203,13 @@ int sendcmd(unsigned char *thiscmd, unsigned char resp, unsigned char *buf)
             // maybe abort, return -3?
             break;
         case INFV1BUSY:
+#if 0
             printf("V1Busy:");
             for (ix = 0; ix < buf[4] - 1; ix++)
                 printf(" %02x", buf[5 + ix]);
-            ix = 0;             // reset timer
             printf("\n");
+#endif
+            ix = 0;             // reset timer
             break;
         case RESPDATAERROR:
             printf("Data Error %02x\n", buf[5]);
@@ -376,6 +387,7 @@ int main(int argc, char *argv[])
     makecmd(sendbuf, slice, 0xa, REQSTARTALERTDATA, 0, NULL);
     sendcmd(sendbuf, NORESPONSE, buf);
     for(;;) {
+	printf( "===\n" );
 	ix = v1alerts;
 	while( ix == v1alerts ) {
 	    usleep(10000);
@@ -392,30 +404,41 @@ int main(int argc, char *argv[])
 		printf( "!" );
 	    printf( "\n" );
 	}
-	printf( "===\n" );
     }
     fclose(fp);
     return 0;
     /*
 
-       switch (buf[3]) {
-       case 0x21:
-       printf("SweepWriteResult: %d\n", buf[5]);
-       break;
-       case 0x31:
-       printf("Disp: %c%c %02x %02x ", sevs2ascii[buf[5] & 0x7f], buf[5] & 0x80 ? 'o' : ' ', buf[5], buf[6] ^ buf[5]);
-       for (ix = 0; ix < 8; ix++)
-       printf("%c", (buf[7] >> ix) & 1 ? '*' : '.');
+      char sevs2ascii[] = {
+      ' ', '~', '.', '.', '.', '.', '1', '7',
+      '_', '.', '.', '.', 'j', '.', '.', ']',
+      '.', '.', '.', '.', '.', '.', '.', '.',
+      'l', '.', '.', '.', 'u', 'v', 'J', '.',
 
-       //bit 0-7: Laser, Ka, K, X, -, Front, Side, Rear
-       printf(" %02x %02x", buf[8], buf[9] ^ buf[8]);
-       //bit 0-7: Mute, TSHold, SysUp, DispOn, Euro, Custom, -, -
-       printf(" %02x\n", buf[10]);
-       break;
-       case 0x43:
-       printf("Alert: %d/%d %5d %3d^ %3dv %02x %02x\n", buf[5] >> 4, buf[5] & 15, buf[6] << 8 | buf[7], buf[8], buf[9],
-       buf[10], buf[11]);
-       break;
+      '.', '.', '.', '^', '.', '.', '.', '.',
+      '.', '.', '.', '.', '.', '.', '.', '.',
+      '|', '.', '.', '.', '.', '.', '.', '.',
+      'L', 'C', '.', '.', '.', 'G', 'U', '0',
 
-     */
+      '-', '.', '.', '.', '.', '.', '.', '.',
+      '=', '#', '.', '.', '.', '.', '.', '3',
+      'r', '.', '/', '.', '.', '.', '.', '.',
+      'c', '.', '.', '2', 'o', '.', 'd', '.',
+
+      '.', '.', '.', '.', '\\', '.', '4', '.',
+      '.', '.', '.', '.', '.', '5', 'y', '9',
+      '.', 'F', '.', 'P', 'h', '.', 'H', 'A',
+      't', 'E', '.', '.', 'b', '6', '.', '8'
+      };
+      printf("Disp: %c%c %02x %02x ", sevs2ascii[buf[5] & 0x7f], buf[5] & 0x80 ? 'o' : ' ', buf[5], buf[6] ^ buf[5]);
+      for (ix = 0; ix < 8; ix++)
+      printf("%c", (buf[7] >> ix) & 1 ? '*' : '.');
+
+      //bit 0-7: Laser, Ka, K, X, -, Front, Side, Rear
+      printf(" %02x %02x", buf[8], buf[9] ^ buf[8]);
+      //bit 0-7: Mute, TSHold, SysUp, DispOn, Euro, Custom, -, -
+      printf(" %02x\n", buf[10]);
+      break;
+
+    */
 }
