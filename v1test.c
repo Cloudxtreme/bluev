@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #define REQVERSION (1)
 #define RESPVERSION (2)
@@ -85,6 +86,10 @@ int makecmd(unsigned char *buf, unsigned char src, unsigned char dst, unsigned c
     return b - buf;
 };
 
+unsigned char v1idd = 0, v1infdisplaydata[8];
+unsigned char v1alerts = 0, v1alerttemp[16][7], v1alertout[16][7];
+unsigned char cddr = 0;
+
 int readpkt(unsigned char *buf)
 {
     unsigned char len, ix;
@@ -127,16 +132,28 @@ int readpkt(unsigned char *buf)
             continue;
 
         // save off current alert or inf packet separately
-        // 0x31  0x43 0x61
         if (buf[3] == INFDISPLAYDATA) {
+	    // maybe verify rest of packet
+	    v1idd++;
+	    memcpy( v1infdisplaydata, buf+5, 8 );
         }
         else if (buf[3] == RESPALERTDATA) {
+	    // copy to temp until index == total, then move to out and inc
+	    memcpy( v1alerttemp[(buf[5]>>4)-1], buf+5, 7 );
+	    if( buf[5]>>4 == (buf[5] & 15) ) {
+		memcpy( v1alertout, v1alerttemp, 7*(buf[5]&15) );
+		v1alerts++;
+	    }
         }
         else if (buf[3] == RESPDATARECEIVED) {
+	    cddr++;
         }
-        else
-            printf("r: %d: %02x %02x %02x %02x %02x %02x %02x\n", len, buf[0], buf[1], buf[2], buf[3], buf[4], buf[5], buf[6]);
-
+        else {
+            printf("r: %d:", len );
+	    for( ix = 1 ; ix < len - 1 ; ix++ )
+		printf( " %02x", buf[ix]);
+	    printf( "\n" );
+	}
         return len;
     }
 }
@@ -225,7 +242,18 @@ int main(int argc, char *argv[])
     ix = makecmd(sendbuf, slice, 0xa, REQCHANGEMODE, 1, cmparm);
     sendcmd(sendbuf, NORESPONSE, buf);
 #endif
+    // send one request version to clear out the incoming packet buffer
+    makecmd(sendbuf, slice, 0xa, REQVERSION, 0, NULL);
+    sendcmd(sendbuf, NORESPONSE, buf);
+    for (;;) {
+        ret = readpkt(buf);
+        if (ret < 6)
+            continue;
+	if( buf[3] == RESPVERSION )
+	    break;
+    }
 
+    // do commands
     makecmd(sendbuf, slice, 0xa, REQVERSION, 0, NULL);
     sendcmd(sendbuf, RESPVERSION, buf);
     printf("Version: ");
@@ -345,6 +373,27 @@ int main(int argc, char *argv[])
     sendcmd(sendbuf, RESPVEHICLESPEED, buf);
     printf("SavvyVehSpd: %d kph\n", buf[5]);
 
+    makecmd(sendbuf, slice, 0xa, REQSTARTALERTDATA, 0, NULL);
+    sendcmd(sendbuf, NORESPONSE, buf);
+    for(;;) {
+	ix = v1alerts;
+	while( ix == v1alerts ) {
+	    usleep(10000);
+	    readpkt(buf);
+	}
+	for( ix = 0 ; ix < (v1alertout[0][0] & 15); ix++ ) {
+	    unsigned char *b = v1alertout[ix];
+	    unsigned char typ[]="LAKXU^-v", t;
+	    printf("%2d/%2d %5d %3d ^v %3d ", b[0] >> 4, b[0] & 15, b[1] << 8 | b[2], b[3], b[4]);
+	    for( t = 0 ; t < 8; t++ )
+		if( (b[5] >> t ) & 1)
+		    printf( "%c", typ[t] );
+	    if( b[6] & 0x80 )
+		printf( "!" );
+	    printf( "\n" );
+	}
+	printf( "===\n" );
+    }
     fclose(fp);
     return 0;
     /*
