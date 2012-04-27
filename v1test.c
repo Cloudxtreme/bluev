@@ -2,51 +2,89 @@
 #include <stdlib.h>
 #include <string.h>
 
-unsigned char cmds[][22] = {
-    {0xaa, 0xda, 0xe4, 0x01, 0x01, 0x6a, 0xab}, // 0 software version
-    {0xaa, 0xda, 0xe4, 0x03, 0x01, 0x6c, 0xab}, // 1 serial number
-    {0xaa, 0xda, 0xe4, 0x11, 0x01, 0x7a, 0xab}, // 2 user bytes
-    {0xaa, 0xda, 0xe4, 0x14, 0x01, 0x7d, 0xab}, // 3 factory defaults
-    {0xaa, 0xda, 0xe4, 0x16, 0x01, 0x7f, 0xab}, // 4 sweep definitions
-    {0xaa, 0xda, 0xe4, 0x18, 0x01, 0x81, 0xab}, // 5 default sweeps
-    {0xaa, 0xda, 0xe4, 0x19, 0x01, 0x82, 0xab}, // 6 max sweep index
-    {0xaa, 0xda, 0xe4, 0x22, 0x01, 0x8b, 0xab}, // 7 sweep sections
-    {0xaa, 0xda, 0xe4, 0x32, 0x01, 0x9b, 0xab}, // 8 main display off
-    {0xaa, 0xda, 0xe4, 0x33, 0x01, 0x9c, 0xab}, // 9 main display on
-    {0xaa, 0xda, 0xe4, 0x34, 0x01, 0x9d, 0xab}, // 10 mute on
-    {0xaa, 0xda, 0xe4, 0x35, 0x01, 0x9e, 0xab}, // 11 mute off
-    {0xaa, 0xda, 0xe4, 0x41, 0x01, 0xaa, 0xab}, // 12 alert data on
-    {0xaa, 0xda, 0xe4, 0x42, 0x01, 0xab, 0xab}, // 13 alert data off
-    {0xaa, 0xda, 0xe4, 0x62, 0x01, 0xcb, 0xab}, // 14 battery voltage
-    {0xaa, 0xda, 0xe4, 0x36, 0x02, 0x01, 0xa1, 0xab},   // 15 all bogeys mode
-    {0xaa, 0xda, 0xe4, 0x36, 0x02, 0x02, 0xa2, 0xab},   // 16 logic mode
-    {0xaa, 0xda, 0xe4, 0x36, 0x02, 0x03, 0xa3, 0xab},   // 17 advanced logic mode
-    {0xaa, 0xd0, 0xe4, 0x01, 0x01, 0x60, 0xab}, // 18 CD software version
+#define REQVERSION (1)
+#define RESPVERSION (2)
+#define REQSERIALNUMBER (3)
+#define RESPSERIALNUMBER (4)
 
-    {0xaa, 0xd1, 0xe4, 0x01, 0x01, 0x61, 0xab}, // 19 RA software version
+#define REQUSERBYTES (0x11)
+#define RESPUSERBYTES (0x12)
+#define REQWRITEUSERBYTES (0x11)
+#define REQFACTORYDEFAULT (0x14)
 
-    {0xaa, 0xd2, 0xe4, 0x01, 0x01, 0x62, 0xab}, // 20 savvy software version
-    {0xaa, 0xd2, 0xe4, 0x03, 0x01, 0x64, 0xab}, // 21 savvy serial number
-    {0xaa, 0xd2, 0xe4, 0x71, 0x01, 0xd2, 0xab}, // 22 savvy status
-    {0xaa, 0xd2, 0xe4, 0x73, 0x01, 0xd4, 0xab}, // 23 savvy vehicle speed
+#define REQWRITESWEEPDEFINITIONS (0x16)
+#define REQALLSWEEPDEFINITIONS (0x16)
+#define RESPSWEEPDEFINITION (0x17)
+#define REQDEFAULTSWEEPS (0x18)
 
-    // cks not verified
-    {0xaa, 0xd2, 0xe4, 0x76, 0x02, 0x00, 0xe0, 0xab},   // 24 savvy disable unmute
-    {0xaa, 0xd2, 0xe4, 0x76, 0x02, 0x01, 0xe1, 0xab},   // 25 savvy enable unmute
+#define REQMAXSWEEPINDEX (0x19)
+#define RESPMAXSWEEPINDEX (0x20)
+#define RESPSWEEPWRITERESULT (0x21)
+#define REQSWEEPSECTIONS (0x22)
+#define RESPSWEEPSECTIONS (0x23)
 
-    //  one byte param
-    {0xaa, 0xd2, 0xe4, 0x75, 0x02, 0x00, 0xdf, 0xab},   // 26 savvy thumbwheel override
-    //  mute threshold speed, KPH, 0=never 0xff=always, fix cks
+#define INFDISPLAYDATA (0x31)
+#define REQTURNOFFMAINDISPLAY (0x32)
+#define REQTURNONMAINDISPLAY (0x33)
+#define REQMUTEON (0x34)
+#define REQMUTEOFF (0x35)
+#define REQCHANGEMODE (0x36)
 
-    //  complex param
-    //{ 0xaa, 0xda, 0xe4, 0x13, 0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x--, 0xab}, //  write user bytes
-    //{ 0xaa, 0xda, 0xe4, 0x15, 0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x--, 0xab}, //  write sweep definition
-};
+#define REQSTARTALERTDATA (0x41)
+#define REQSTOPALERTDATA (0x42)
+#define RESPALERTDATA (0x43)
 
-//  Note - an 0xaa 0xd4 0xe? packet for version or serial number might be responded to
+#define RESPDATARECEIVED (0x61)
+#define REQBATTERYVOLTAGE (0x62)
+#define RESPBATTERYVOLTAGE (0x63)
+#define RESPUNSUPPORTEDPACKET (0x64)
+#define RESPREQUESTNOTPROCESSED (0x65)
+#define INFV1BUSY (0x66)
+#define RESPDATAERROR (0x67)
+
+#define REQSAVVYSTATUS (0x71)
+#define RESPSAVVYSTATUS (0x72)
+#define REQVEHICLESPEED (0x73)
+#define RESPVEHICLESPEED (0x74)
+#define REQOVERRIDETHUMBWHEEL (0x75)
+#define REQSETSAVVYMUTEENABLE (0x76)
+
+#define NORESPONSE (0xfe)
 
 FILE *fp = NULL;
 unsigned char nochecksum = 0;
+
+unsigned char slice = 4;
+int makecmd(unsigned char *buf, unsigned char src, unsigned char dst, unsigned char pkt, unsigned char len, unsigned char *param)
+{
+    if (len > 16)
+        return 0;
+    if (src > 15 || dst > 15)
+        return 0;
+    if (len && !param)
+        return 0;
+    unsigned char *b = buf, l = len;
+    *b++ = 0xaa;
+    if (nochecksum && dst == 0x0a)
+        dst = 9;
+    if (dst == 9 && !nochecksum)
+        dst = 0x0a;
+    *b++ = 0xd0 + dst;
+    *b++ = 0xe0 + src;
+    *b++ = pkt;
+    *b++ = len + !nochecksum;
+    while (l--)
+        *b++ = *param++;
+    if (!nochecksum) {
+        unsigned char cks = 0, ix = 0;
+        for (ix = 0; ix < len + 5; ix++)
+            cks += buf[ix];
+        *b++ = cks;
+    }
+    *b++ = 0xab;
+    return b - buf;
+};
+
 int readpkt(unsigned char *buf)
 {
     unsigned char len, ix;
@@ -85,11 +123,21 @@ int readpkt(unsigned char *buf)
                 return -2;      // continue; ???
         }
         while (1 != fread(&buf[len], 1, 1, fp));
-        // should verify it is 0xab
+        if (buf[len++] != 0xab)
+            continue;
 
         // save off current alert or inf packet separately
+        // 0x31  0x43 0x61
+        if (buf[3] == INFDISPLAYDATA) {
+        }
+        else if (buf[3] == RESPALERTDATA) {
+        }
+        else if (buf[3] == RESPDATARECEIVED) {
+        }
+        else
+            printf("r: %d: %02x %02x %02x %02x %02x %02x %02x\n", len, buf[0], buf[1], buf[2], buf[3], buf[4], buf[5], buf[6]);
 
-        return ++len;
+        return len;
     }
 }
 
@@ -97,7 +145,7 @@ int sendcmd(unsigned char *thiscmd, unsigned char resp, unsigned char *buf)
 {
     unsigned char ix;
     int ret;
-    // checksum always included, fixme
+
     fwrite(thiscmd, thiscmd[4] + 6, 1, fp);     // write command
 #define ECHOTIME 8
     for (ix = 0; ix < ECHOTIME; ix++) { // look for command on bus
@@ -111,28 +159,31 @@ int sendcmd(unsigned char *thiscmd, unsigned char resp, unsigned char *buf)
     if (ix == ECHOTIME)
         return -1;
 
+    if (resp == NORESPONSE)
+        return 0;
+
     // look for response
-#define RESPTIME 20
+#define RESPTIME 50
     for (ix = 0; ix < RESPTIME; ix++) {
         ret = readpkt(buf);
         if (ret < 6)
             continue;
         switch (buf[3]) {
-        case 0x64:
+        case RESPUNSUPPORTEDPACKET:
             printf("Unsupported Packet\n");
             break;
-        case 0x65:
+        case RESPREQUESTNOTPROCESSED:
             printf("Request Not Processed %02x\n", buf[5]);
             // maybe abort, return -3?
             break;
-        case 0x66:
+        case INFV1BUSY:
             printf("V1Busy:");
             for (ix = 0; ix < buf[4] - 1; ix++)
                 printf(" %02x", buf[5 + ix]);
             ix = 0;             // reset timer
             printf("\n");
             break;
-        case 0x67:
+        case RESPDATAERROR:
             printf("Data Error %02x\n", buf[5]);
             break;
         }
@@ -145,9 +196,10 @@ int sendcmd(unsigned char *thiscmd, unsigned char resp, unsigned char *buf)
     return 0;
 }
 
+/*========================================================================*/
 int main(int argc, char *argv[])
 {
-    unsigned char buf[24], ix;
+    unsigned char buf[22], sendbuf[22], ix;
     int ret;
     fp = fopen("/dev/ttyUSB0", "a+b");
     if (!fp)
@@ -162,31 +214,39 @@ int main(int argc, char *argv[])
         ret = readpkt(buf);
         if (ret < 5)
             continue;
-        if (buf[3] == 0x31)
+        if (buf[3] == INFDISPLAYDATA)
             break;
     }
     // should worry about timeslice holdoff.
 
-    do {
-        ret = sendcmd(cmds[0], 2, buf);
-    } while (ret < 0);
+    //    printf( "VN: %d: %02x %02x %02x %02x %02x %02x %02x\n", ix, sendbuf[0], sendbuf[1], sendbuf[2], sendbuf[3], sendbuf[4], sendbuf[5], sendbuf[6] );
+#if 0
+    unsigned char cmparm[] = { 3 };
+    ix = makecmd(sendbuf, slice, 0xa, REQCHANGEMODE, 1, cmparm);
+    sendcmd(sendbuf, NORESPONSE, buf);
+#endif
 
+    makecmd(sendbuf, slice, 0xa, REQVERSION, 0, NULL);
+    sendcmd(sendbuf, RESPVERSION, buf);
     printf("Version: ");
     for (ix = 0; ix < buf[4] - 1; ix++)
         printf("%c", buf[5 + ix] < 127 && buf[5 + ix] > 31 ? buf[5 + ix] : '.');
     printf("\n");
 
-    sendcmd(cmds[1], 4, buf);
+    makecmd(sendbuf, slice, 0xa, REQSERIALNUMBER, 0, NULL);
+    sendcmd(sendbuf, RESPSERIALNUMBER, buf);
     printf("SerialNo: ");
     for (ix = 0; ix < buf[4] - 1; ix++)
         printf("%c", buf[5 + ix] < 127 && buf[5 + ix] > 31 ? buf[5 + ix] : '.');
     printf("\n");
 
-    sendcmd(cmds[14], 0x63, buf);
+    makecmd(sendbuf, slice, 0xa, REQBATTERYVOLTAGE, 0, NULL);
+    sendcmd(sendbuf, RESPBATTERYVOLTAGE, buf);
     printf("BattVolt: %d.%02d\n", buf[5], buf[6]);
 
     // User settings
-    sendcmd(cmds[2], 0x12, buf);
+    makecmd(sendbuf, slice, 0xa, REQUSERBYTES, 0, NULL);
+    sendcmd(sendbuf, RESPUSERBYTES, buf);
     char userset[] = "12345678AbCdEFGHJuUtL   ";
     printf("UserSet: (default) ");
     for (ix = 0; ix < 8; ix++)
@@ -205,7 +265,8 @@ int main(int argc, char *argv[])
     printf("\n");
 
     // Sweep Sections and Definitions
-    sendcmd(cmds[7], 0x23, buf);
+    makecmd(sendbuf, slice, 0xa, REQSWEEPSECTIONS, 0, NULL);
+    sendcmd(sendbuf, RESPSWEEPSECTIONS, buf);
     printf("SweepSct:\n");
     printf("+%d/%d %5d - %5d\n", buf[5] >> 4, buf[5] & 15, buf[8] << 8 | buf[9], buf[6] << 8 | buf[7]);
     if (buf[4] > 6)
@@ -228,11 +289,13 @@ int main(int argc, char *argv[])
             printf("+%d/%d %5d - %5d\n", buf[15] >> 4, buf[15] & 15, buf[18] << 8 | buf[19], buf[16] << 8 | buf[17]);
     }
     // sweep definitions must stay within the sections above
-    sendcmd(cmds[6], 0x20, buf);
+    makecmd(sendbuf, slice, 0xa, REQMAXSWEEPINDEX, 0, NULL);
+    sendcmd(sendbuf, RESPMAXSWEEPINDEX, buf);
     printf("SweepMax: %d\n", buf[5]);
     unsigned int maxswp = buf[5];
     // read sweep sections
-    sendcmd(cmds[4], 0x17, buf);
+    makecmd(sendbuf, slice, 0xa, REQALLSWEEPDEFINITIONS, 0, NULL);
+    sendcmd(sendbuf, RESPSWEEPDEFINITION, buf);
     printf("SweepDef: %d Top:%5d Bot:%5d\n", buf[5] & 63, buf[6] << 8 | buf[7], buf[8] << 8 | buf[9]);
     for (ix = 0; ix < maxswp;) {
         ret = readpkt(buf);
@@ -245,33 +308,41 @@ int main(int argc, char *argv[])
     }
 
     // Concealed Display
-    sendcmd(cmds[18], 2, buf);
+    makecmd(sendbuf, slice, 0, REQVERSION, 0, NULL);
+    sendcmd(sendbuf, RESPVERSION, buf);
     printf("CD Version: ");
     for (ix = 0; ix < buf[4] - 1; ix++)
         printf("%c", buf[5 + ix] < 127 && buf[5 + ix] > 31 ? buf[5 + ix] : '.');
     printf("\n");
 
     // Remote Audio
-    sendcmd(cmds[19], 2, buf);
+    makecmd(sendbuf, slice, 1, REQVERSION, 0, NULL);
+    sendcmd(sendbuf, RESPVERSION, buf);
     printf("RA Version: ");
     for (ix = 0; ix < buf[4] - 1; ix++)
         printf("%c", buf[5 + ix] < 127 && buf[5 + ix] > 31 ? buf[5 + ix] : '.');
     printf("\n");
 
     // Savvy
-    sendcmd(cmds[20], 2, buf);
+    makecmd(sendbuf, slice, 2, REQVERSION, 0, NULL);
+    sendcmd(sendbuf, RESPVERSION, buf);
     printf("SV Version: ");
     for (ix = 0; ix < buf[4] - 1; ix++)
         printf("%c", buf[5 + ix] < 127 && buf[5 + ix] > 31 ? buf[5 + ix] : '.');
     printf("\n");
-    sendcmd(cmds[21], 4, buf);
+
+    makecmd(sendbuf, slice, 2, REQSERIALNUMBER, 0, NULL);
+    sendcmd(sendbuf, RESPSERIALNUMBER, buf);
     printf("SV SerialNo: ");
     for (ix = 0; ix < buf[4] - 1; ix++)
         printf("%c", buf[5 + ix] < 127 && buf[5 + ix] > 31 ? buf[5 + ix] : '.');
     printf("\n");
-    sendcmd(cmds[22], 0x72, buf);
+
+    makecmd(sendbuf, slice, 2, REQSAVVYSTATUS, 0, NULL);
+    sendcmd(sendbuf, RESPSAVVYSTATUS, buf);
     printf("SavvyStat: ThreshKPH:%d (unmu ena: throvrd):%d\n", buf[5], buf[6]);
-    sendcmd(cmds[23], 0x74, buf);
+    makecmd(sendbuf, slice, 2, REQVEHICLESPEED, 0, NULL);
+    sendcmd(sendbuf, RESPVEHICLESPEED, buf);
     printf("SavvyVehSpd: %d kph\n", buf[5]);
 
     fclose(fp);
