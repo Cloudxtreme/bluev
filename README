@@ -3,6 +3,8 @@ The GNU General Public License Version 3
 
 This is a Valentine V1 ESP interface based on the ATtiny4313 running at 20Mhz
 
+NEW! Arduino Mega support, but it isn't a sketch.  See Arduino Mega section at the bottom
+
 (Note: The ATtiny2313 should also work as I'm not using more than half the RAM or Flash)
 
 (Note: I don't have a legacy V1 nor one that does NOT support
@@ -84,6 +86,23 @@ pullup to allow the main display to turn on and off)
 Note there is a "#define ANYSLICE" that overrides the checking for 3rd
 party source id 3-5.  I can simulate a concealed display by sending
 0x61 packets which will turn off the main display.
+
+ARDUINO MEGA:
+
+bluevmega.c and Makefile.ArduMega.  Compile and flash with "make -f
+Makefuile.ArduMega flash".  It uses the Arduino bootloader.
+
+Wiring:
+
+Power can be applied via USB since you will likely want to use a
+computer, however you will want ground from the modular connector to
+any ground pin on the Mega.
+
+V1 Data line to TX1 and "pin 49" (ICP4).
+
+Only ICP4 and ICP5 are available on the Mega, and there are 4 UARTs,
+but zero goes to the PC.  So I echo anything received by my bitbang
+UART out TX0, and use RX0 for input.  I use TX1 to send commands.
 
 TODO:
 

@@ -1,0 +1,290 @@
+#include <avr/io.h>
+#include <avr/interrupt.h>
+#include <avr/sleep.h>
+#include <avr/pgmspace.h>
+#include <string.h>
+
+
+//#define F_CPU  	18432000
+#define F_CPU  	16000000
+#define BAUD 	57600
+
+#define PRESCALE1 8
+#define BITTIME(x)		( ((x) * F_CPU) / PRESCALE1 / BAUD)
+
+#include <util/delay.h>
+/*-------------------------------------------------------------------------*/
+#define INMSGSIZE 24
+static unsigned char inmsgbuf[INMSGSIZE], inmsglen, inmsgcks;
+static unsigned char slice = 4;
+
+static unsigned char nochecksum = 0;
+#define ANYSLICE
+// Received character from bluetooth
+static unsigned char inmsgstate;
+// Save off characters until a valid V1 ESP packet is complete
+ISR(USART0_RX_vect)
+{
+    unsigned char c = UDR0;
+
+    switch (inmsgstate) {
+    case 0:                    // SOF
+        if (c == 0xaa) {
+            inmsgcks = 0;
+            inmsglen = 0;
+            inmsgstate++;
+        }
+        break;
+    case 1:                    // destination
+        if ((c & 0xf0) == 0xd0)
+            inmsgstate++;
+        else
+            inmsgstate = 0;
+        break;
+    case 2:                    // source
+        if ((c & 0xf0) == 0xe0 
+#ifndef ANYSLICE
+	    && (c & 0x0f) <= 5 && (c & 0x0f) >= 3
+#endif
+	    )   // valid source ?
+            inmsgstate++;
+        else
+            inmsgstate = 0;
+        break;
+    case 3:                    // ID through EOF
+        if (inmsglen == 4 && c > 20) {  // validate length
+            inmsgstate = 0;
+            break;
+        }
+        if (inmsglen < 5)       // later tests require length
+            break;
+
+        if (!nochecksum)
+            if (inmsgbuf[4] + 4 == inmsglen) {  // checksum byte
+                if (inmsgcks != c)
+                    inmsgstate = 0;
+                break;
+            }
+        if (c == 0xab && inmsgbuf[4] + 5 == inmsglen) { // EOF - queue for send
+            inmsgbuf[inmsglen] = c;     // avoid race 
+            slice = inmsgbuf[2] & 0x0f;
+            inmsgstate = 4;
+        }
+        break;
+    case 4:                    // waiting for transmit - discard
+        return;
+    default:
+        break;
+    }
+    if (inmsgstate && inmsglen < INMSGSIZE) {
+        inmsgbuf[inmsglen++] = c;
+        inmsgcks += c;
+    }
+    else                        // overflow - shouldn't happen given state machine
+        inmsgstate = 0;
+}
+
+/*-------------------------------------------------------------------------*/
+static unsigned int bitcnt;
+static unsigned int frametime;
+// Time Slice processor
+// This counts character times to find the slot to transmit.  
+// Each slot is 45 character times wide
+// FIXME - doesn't try to resync or otherwise avoid collisions with other devices
+ISR(TIMER4_COMPB_vect)
+{
+    OCR4B += BITTIME(10);
+    frametime++;
+
+    if (frametime < 45 * slice)
+        return;
+
+    if (inmsgstate != 4) {      // nothing for this frame
+        TIMSK4 &= ~_BV(OCIE4B);  // slice processor off
+        UCSR1B &= ~_BV(TXEN0);    // TX off - just in case
+        frametime = 0;
+        return;
+    }
+
+    if (
+#ifdef ANYSLICE
+	(slice == 0 && frametime == 1) || 
+#endif
+	frametime == 45 * slice) {      // At current time slice
+
+        // Holdoff for late previous time slice
+        if (bitcnt)
+            frametime--;
+        else
+            UCSR1B |= _BV(TXEN0); // TX on
+        return;
+    }
+
+    if (frametime >= 45 * (slice + 1)) {        // end of time slice
+        TIMSK4 &= ~_BV(OCIE4B);  // slice processor off
+        UCSR1B &= ~_BV(TXEN0);    // TX off
+        frametime = 0;
+        inmsgstate = 0;
+        return;
+    }
+
+    if (!(frametime & 1)) {     // Data Out Pacing, every other frame until done
+        unsigned char ptr = (frametime - (45 * slice + 1)) >> 1;
+        if (ptr < inmsglen)
+            UDR1 = inmsgbuf[ptr];
+        if (ptr > inmsglen)
+            UCSR1B &= ~_BV(TXEN0);        // TX off
+    }
+}
+
+// This tracks the V1 infDisplayData packet to sync the ESP cycle
+static unsigned char v1state, thislen;
+unsigned char infDisp[] = "\xaa\xd8\xea\x31\x09";       // put in Flash?
+void dostate(unsigned char val)
+{
+    // FIXME - hardcoded packet length
+    // on the fly comparison of the first 5 bytes of the infDisplay packet
+    if (v1state < 5) {
+        v1state++;
+        if (v1state == 3) { // Checksum or not?
+            if (val == 0xea)
+                infDisp[4] = 9, nochecksum = 0;
+            else if (val == 0xe9)
+                infDisp[4] = 8, nochecksum = 1;
+            else
+                v1state = 0;
+            return;
+        }
+        if (val == infDisp[v1state-1])
+            thislen = v1state;
+        else
+            v1state = 0;
+        return;
+    }
+    thislen++;
+    if (thislen == 11 && (val & 2)) {   // V1 TimeSlice holdoff
+        v1state = 0;
+        return;
+    }
+#if 0
+    // FIXME? maybe validate checksum?
+    if (thislen == 14 && val != ckcksum(inbuf, 14))
+        return 0;
+#endif
+    if (val == 0xab && thislen == 6 + infDisp[4]) {     // EOF - start time slice sync
+        frametime = 0;
+        v1state = 0;
+        OCR4B = OCR4A + BITTIME(10) + BITTIME(1) / 2;
+        TIFR4 |= _BV(OCF4B);     /* clear compare match interrupt */
+        TIMSK4 |= _BV(OCIE4B);   /* enable compare match interrupt */
+        return;
+    }
+    if (thislen > 6 + infDisp[4])       // too long
+        v1state = 0;
+}
+
+static unsigned char outchar;   // bitbang UART receive register
+static unsigned char polarity;  // which edge are we looking for
+//Stopbit for software UART
+ISR(TIMER4_COMPA_vect)
+{
+    TIMSK4 &= ~_BV(OCIE4A);      // disable
+    if (!polarity) {            // not break condition
+        while (bitcnt < 10) {   // fill in one bits up to stop bit
+            bitcnt++;
+            outchar >>= 1;
+            outchar |= 0x80;
+        }
+	UDR0 = outchar;
+        dostate(outchar);
+    }
+    else {                      // break, reset things for next start bit
+        TCCR4B &= ~_BV(ICES1);
+        polarity = 0;
+    }
+    bitcnt = 0;
+}
+
+// Software UART via edges
+ISR(TIMER4_CAPT_vect)
+{
+    static unsigned lastedge;
+    TCCR4B ^= _BV(ICES1);
+    /* toggle interrupt on rising/falling edge */
+    if (!polarity && !bitcnt) { // start bit
+        lastedge = ICR4;
+        OCR4A = lastedge + BITTIME(9) + BITTIME(1) / 2;
+        TIFR4 |= _BV(OCF4A);     /* clear compare match interrupt */
+        TIMSK4 |= _BV(OCIE4A);   /* enable compare match interrupt */
+        polarity = 1;
+        bitcnt = 1;
+        return;
+    }
+    unsigned thisedge = ICR4;
+    unsigned width = thisedge - lastedge;
+    lastedge = thisedge;
+    width += BITTIME(1) / 2;    // round up
+    while (width >= BITTIME(1)) {       // Shift in bits based on width
+        width -= BITTIME(1);
+        bitcnt++;
+        outchar >>= 1;
+        if (!polarity)
+            outchar |= 0x80;
+    }
+    polarity ^= 1;
+}
+
+/*-------------------------------------------------------------------------*/
+int main(void)
+{
+
+    /* for testing
+       inmsgstate = 4;
+       strcpy_P( inmsgbuf, PSTR("\xaa\xda\xe4\x41\x01\xaa\xab") );
+       inmsglen = 7;
+     */
+    v1state = inmsgstate = inmsglen = 0;
+
+    // UART init
+#include <util/setbaud.h>
+    UBRR1H = UBRRH_VALUE;
+    UBRR1L = UBRRL_VALUE;
+#if USE_2X
+    UCSR1A |= (1 << U2X1);
+#else
+    UCSR1A &= ~(1 << U2X1);
+#endif
+
+    UCSR1C = _BV(UCSZ10) | _BV(UCSZ11);    // 8N1
+    //    UCSR1B = _BV(RXEN1) | _BV(RXCIE1);     // Enable Receive
+
+    UBRR0H = UBRRH_VALUE;
+    UBRR0L = UBRRL_VALUE;
+#if USE_2X
+    UCSR0A |= (1 << U2X0);
+#else
+    UCSR0a &= ~(1 << U2X0);
+#endif
+    UCSR0C = _BV(UCSZ00) | _BV(UCSZ01);    // 8N1
+    UCSR0B = _BV(TXEN0) | _BV(RXEN0) | _BV(RXCIE0); // Enable TX and RX
+
+    // Timer init
+    GTCCR = 0;//_BV(PSR10);         /* reset prescaler */
+    TCNT4 = 0;                  /* reset counter value */
+    polarity = bitcnt = 0;
+
+    // trigger on falling edge (default), noise cancel
+    // lower 3 bits is div, off,1,8,64,256,1024,extfall,extris ; CS12,11,10
+    TCCR4B = _BV(ICNC1) | _BV(CS11);
+
+    // clear and enable Input Capture interrupt 
+    TIFR4 |= _BV(ICF4) | _BV(TOV4) | _BV(OCF4A) | _BV(OCF4B);
+    TIMSK4 |= _BV(ICIE4);        // enable input capture only
+
+    sei();                      // enable interrupts
+    // and sleep between events
+    set_sleep_mode(SLEEP_MODE_IDLE);
+    for (;;) {
+	_delay_us(1000);
+    }
+}
