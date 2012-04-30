@@ -44,3 +44,36 @@ information, then enable alerts and print them.  Note if alerts are
 enabled when you restart it might take a few seconds to get some
 things (e.g. battery voltage).  There is a "v1 busy message" which is
 currently disabled but would show up if this is happening.
+
+Sample Output:
+
+V1MegaTool
+V1 Version: V3.8930
+V1 SerialNo: [redacted]
+BattVolt: 13.15
+UserSet: (default) 12345_78AbCdEFGHJuU_L   
+UserSet: (changed) _____6_____________t____
+SweepSct:
++1/2 34774 - 36072
++2/2 33383 -:34770
+SweepMax: 5
+SweepDef: 0 Top:34106 Bot:33900
+SweepDef: 1 Top:34475 Bot:34180
+SweepDef: 2 Top:34652 Bot:34563
+SweepDef: 3 Top:35526 Bot:35467
+SweepDef: 4 Top:    0 Bot:    0
+SweepDef: 5 Top:    0 Bot:    0
+CD Version: C2.1300
+RA Version: R2.1300
+SV Version: S0.0099
+SV SerialNo: [redacted]
+SavvyStat: ThreshKPH:56 (unmu ena: throvrd):2
+SavvyVehSpd: 0 kph
+===
+ 1/ 1 35027   0 ^v 142 Av!
+===
+ 1/ 1 35027   0 ^v 145 Av!
+===
+ 1/ 1 35027   0 ^v 145 Av!
+
+Alerts, num of total, freq MHz, frontsig ^v rearsig A(=Ka U=Ku KAXLU), v(rear, ^-v), !=priority
