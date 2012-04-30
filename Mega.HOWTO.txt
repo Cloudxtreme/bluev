@@ -1,0 +1,46 @@
+A modular jack inserted into the accessory port on a V1 power
+connection will have the following connections:
+
+(The lock tab is facing up)
+
+ +----------------------------+
+ |                            |
++---------------+             |================================ DATA
+|               |             |
+|               +-------------+---+============================ GROUND
+|                                 |
+|               +-------------+---+============================ POWER
+|               |             |
++---------------+             |================================ AUDIO
+ |                            |
+ +----------------------------+
+
+
+Since you will probably be cutting a pre-made cord, I would suggest
+you align the end with the colors (you can usually see through the
+plug) as green for ground and red for power, which would make data
+yellow and audio black.
+
+You will need to connect ground - there is a power header near the
+power plug - you can buy a plug or go to the ground on the power
+header.  You can connect battery to VIN or PWR_IN or the plug - the
+power LED should turn on if you have this right.
+
+The DATA line goes both to pin 49 on the edge opposite the power plug
+and to pin 18/TX1 near the adjacent corner.
+
+You will need the IDE from arduino.cc to compile and flash the
+program.  It is available for the PC, Mac, and Linux.
+
+The code for bluevmega.c can be pasted into a sketch (that is what it
+calls protrams) and compiled and uploaded by pressing the "play"
+button.  Remember to set the COM port and the board type (it should
+work with any Mega compatible, but older boards use a 1280, newer ones
+use a 2560, so check which one you have.
+
+Once loaded, open a terminal program, set to 57600 baud, and hit
+return.  It will do a scan of the bus and dump any interesting
+information, then enable alerts and print them.  Note if alerts are
+enabled when you restart it might take a few seconds to get some
+things (e.g. battery voltage).  There is a "v1 busy message" which is
+currently disabled but would show up if this is happening.
