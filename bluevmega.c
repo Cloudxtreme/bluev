@@ -264,7 +264,7 @@ ISR(TIMER4_CAPT_vect)
 #define REQWRITEUSERBYTES (0x11)
 #define REQFACTORYDEFAULT (0x14)
 
-#define REQWRITESWEEPDEFINITIONS (0x16)
+#define REQWRITESWEEPDEFINITIONS (0x15)
 #define REQALLSWEEPDEFINITIONS (0x16)
 #define RESPSWEEPDEFINITION (0x17)
 #define REQDEFAULTSWEEPS (0x18)
@@ -424,7 +424,7 @@ int readpkt(unsigned char *buf)
                 sprintf(serbuf, " %02x", buf[ix]);
                 printser(serbuf);
             }
-            printser("\n");
+            printser("\r\n");
 #endif
         }
         return len;
@@ -443,7 +443,7 @@ int sendcmd(unsigned char *thiscmd, unsigned char resp, unsigned char *buf)
 #define ECHOTIME 8
     for (ix = 0; ix < ECHOTIME; ix++) { // look for command on bus
         ret = readpkt(buf);
-        //      sprintf( serbuf, "%d: %02x %02x %02x %02x %02x %02x %02x\n", ret, buf[0], buf[1], buf[2], buf[3], buf[4], buf[5], buf[6] );
+        //      sprintf( serbuf, "%d: %02x %02x %02x %02x %02x %02x %02x\r\n", ret, buf[0], buf[1], buf[2], buf[3], buf[4], buf[5], buf[6] );
         if (ret < thiscmd[4] + 6)
             continue;
         if (!memcmp(thiscmd, buf, ret))
@@ -463,11 +463,11 @@ int sendcmd(unsigned char *thiscmd, unsigned char resp, unsigned char *buf)
             continue;
         switch (buf[3]) {
         case RESPUNSUPPORTEDPACKET:
-            sprintf(serbuf, "Unsupported Packet\n");
+            sprintf(serbuf, "Unsupported Packet\r\n");
             printser(serbuf);
             break;
         case RESPREQUESTNOTPROCESSED:
-            sprintf(serbuf, "Request Not Processed %02x\n", buf[5]);
+            sprintf(serbuf, "Request Not Processed %02x\r\n", buf[5]);
             printser(serbuf);
             // maybe abort, return -3?
             break;
@@ -478,12 +478,12 @@ int sendcmd(unsigned char *thiscmd, unsigned char resp, unsigned char *buf)
                 sprintf(serbuf, " %02x", buf[5 + ix]);
                 printser(serbuf);
             }
-            printser(serbuf, "\n");
+            printser(serbuf, "\r\n");
 #endif
             ix = 0;             // reset timer
             break;
         case RESPDATAERROR:
-            sprintf(serbuf, "Data Error %02x\n", buf[5]);
+            sprintf(serbuf, "Data Error %02x\r\n", buf[5]);
             printser(serbuf);
             break;
         }
@@ -496,210 +496,396 @@ int sendcmd(unsigned char *thiscmd, unsigned char resp, unsigned char *buf)
     return 0;
 }
 
-/*========================================================================*/
-void v1test(void)
-{
-    unsigned char buf[22], sendbuf[22], ix;
-    int ret;
+static unsigned char respget[22], cmdsend[22];
+static unsigned int maxswp = 5;
 
-    while (inhead == intail)
-        sleep_mode();
-
-    printser("V1MegaTool\n");
-
-    for (;;) {                  // get at least one inf packet
-        ret = readpkt(buf);
-        if (ret < 5)
-            continue;
-        if (buf[3] == INFDISPLAYDATA)
-            break;
-    }
-    // should worry about timeslice holdoff.
-
-    //    sprintf( serbuf, "VN: %d: %02x %02x %02x %02x %02x %02x %02x\n", ix, sendbuf[0], sendbuf[1], sendbuf[2], sendbuf[3], sendbuf[4], sendbuf[5], sendbuf[6] );
-#if 0
-    unsigned char cmparm[] = { 3 };
-    ix = makecmd(sendbuf, slice, 0xa, REQCHANGEMODE, 1, cmparm);
-    sendcmd(sendbuf, NORESPONSE, buf);
-#endif
-    // send one request version to clear out the incoming packet buffer
-    makecmd(sendbuf, slice, 0xa, REQVERSION, 0, NULL);
-    sendcmd(sendbuf, NORESPONSE, buf);
+void syncresp() {
+    int iy;
+    // send one request version to clear out the incoming packet respgetfer
+    makecmd(cmdsend, slice, 0xa, REQVERSION, 0, NULL);
+    sendcmd(cmdsend, NORESPONSE, respget);
     for (;;) {
-        ret = readpkt(buf);
-        if (ret < 6)
+        iy = readpkt(respget);
+        if (iy < 6)
             continue;
-        if (buf[3] == RESPVERSION)
+        if (respget[3] == RESPVERSION)
             break;
     }
-    // do commands
-    makecmd(sendbuf, slice, 0xa, REQVERSION, 0, NULL);
-    sendcmd(sendbuf, RESPVERSION, buf);
-    printser("V1 Version: ");
+}
 
-    for (ix = 0; ix < buf[4] - 1; ix++) {
-        sprintf(serbuf, "%c", buf[5 + ix] < 127 && buf[5 + ix] > 31 ? buf[5 + ix] : '.');
-        printser(serbuf);
-    }
-    printser("\n");
-
-    makecmd(sendbuf, slice, 0xa, REQSERIALNUMBER, 0, NULL);
-    sendcmd(sendbuf, RESPSERIALNUMBER, buf);
-    printser("V1 SerialNo: ");
-    for (ix = 0; ix < buf[4] - 1; ix++) {
-        sprintf(serbuf, "%c", buf[5 + ix] < 127 && buf[5 + ix] > 31 ? buf[5 + ix] : '.');
-        printser(serbuf);
-    }
-    printser("\n");
-
-    makecmd(sendbuf, slice, 0xa, REQBATTERYVOLTAGE, 0, NULL);
-    sendcmd(sendbuf, RESPBATTERYVOLTAGE, buf);
-    sprintf(serbuf, "BattVolt: %d.%02d\n", buf[5], buf[6]);
-    printser(serbuf);
-
-    // User settings
-    makecmd(sendbuf, slice, 0xa, REQUSERBYTES, 0, NULL);
-    sendcmd(sendbuf, RESPUSERBYTES, buf);
-    char userset[] = "12345678AbCdEFGHJuUtL   ";
-    printser("UserSet: (default) ");
-    for (ix = 0; ix < 8; ix++) {
-        sprintf(serbuf, "%c", (buf[5] >> ix) & 1 ? userset[ix] : '_');
-        printser(serbuf);
-    }
-    for (ix = 0; ix < 8; ix++) {
-        sprintf(serbuf, "%c", (buf[6] >> ix) & 1 ? userset[ix + 8] : '_');
-        printser(serbuf);
-    }
-    for (ix = 0; ix < 8; ix++) {
-        sprintf(serbuf, "%c", (buf[7] >> ix) & 1 ? userset[ix + 16] : '_');
-        printser(serbuf);
-    }
-    printser("\nUserSet: (changed) ");
-    for (ix = 0; ix < 8; ix++) {
-        sprintf(serbuf, "%c", (buf[5] >> ix) & 1 ? '_' : userset[ix]);
-        printser(serbuf);
-    }
-    for (ix = 0; ix < 8; ix++) {
-        sprintf(serbuf, "%c", (buf[6] >> ix) & 1 ? '_' : userset[ix + 8]);
-        printser(serbuf);
-    }
-    for (ix = 0; ix < 8; ix++) {
-        sprintf(serbuf, "%c", (buf[7] >> ix) & 1 ? '_' : userset[ix + 16]);
-        printser(serbuf);
-    }
-    printser("\n");
-
+void sweep1()
+{
+    int ix, ret;
     // Sweep Sections and Definitions
-    makecmd(sendbuf, slice, 0xa, REQSWEEPSECTIONS, 0, NULL);
-    sendcmd(sendbuf, RESPSWEEPSECTIONS, buf);
-    printser("SweepSct:\n");
-    sprintf(serbuf, "+%d/%d %5u - %5u\n", buf[5] >> 4, buf[5] & 15, buf[8] << 8 | buf[9], buf[6] << 8 | buf[7]);
+    makecmd(cmdsend, slice, 0xa, REQSWEEPSECTIONS, 0, NULL);
+    sendcmd(cmdsend, RESPSWEEPSECTIONS, respget);
+    printser("SweepSections:\r\n");
+    sprintf(serbuf, "+%d/%d %5u - %5u\r\n", respget[5] >> 4, respget[5] & 15, respget[8] << 8 | respget[9],
+      respget[6] << 8 | respget[7]);
     printser(serbuf);
-    if (buf[4] > 6) {
-        sprintf(serbuf, "+%d/%d %5u -:%5u\n", buf[10] >> 4, buf[10] & 15, buf[13] << 8 | buf[14], buf[11] << 8 | buf[12]);
+    if (respget[4] > 6) {
+        sprintf(serbuf, "+%d/%d %5u -:%5u\r\n", respget[10] >> 4, respget[10] & 15, respget[13] << 8 | respget[14],
+          respget[11] << 8 | respget[12]);
         printser(serbuf);
     }
-    if (buf[4] > 11) {
-        sprintf(serbuf, "+%d/%d %5u - %5u\n", buf[15] >> 4, buf[15] & 15, buf[18] << 8 | buf[19], buf[16] << 8 | buf[17]);
+    if (respget[4] > 11) {
+        sprintf(serbuf, "+%d/%d %5u - %5u\r\n", respget[15] >> 4, respget[15] & 15, respget[18] << 8 | respget[19],
+          respget[16] << 8 | respget[17]);
         printser(serbuf);
     }
-    unsigned int nswppkt = (buf[5] & 15);
+    unsigned int nswppkt = (respget[5] & 15);
     for (ix = 1; ix < nswppkt / 3;) {
         // read additional 0x23 packet, print it out
-        ret = readpkt(buf);
+        ret = readpkt(respget);
         if (ret < 5)
             continue;
-        if (buf[3] != 0x23)
+        if (respget[3] != 0x23)
             continue;
         ix++;
-        sprintf(serbuf, "+%d/%d %5u - %5u\n", buf[5] >> 4, buf[5] & 15, buf[8] << 8 | buf[9], buf[6] << 8 | buf[7]);
+        sprintf(serbuf, "+%d/%d %5u - %5u\r\n", respget[5] >> 4, respget[5] & 15, respget[8] << 8 | respget[9],
+          respget[6] << 8 | respget[7]);
         printser(serbuf);
 
-        if (buf[4] > 6) {
-            sprintf(serbuf, "+%d/%d %5u -:%5u\n", buf[10] >> 4, buf[10] & 15, buf[13] << 8 | buf[14], buf[11] << 8 | buf[12]);
+        if (respget[4] > 6) {
+            sprintf(serbuf, "+%d/%d %5u -:%5u\r\n", respget[10] >> 4, respget[10] & 15, respget[13] << 8 | respget[14],
+              respget[11] << 8 | respget[12]);
             printser(serbuf);
         }
-        if (buf[4] > 11) {
-            sprintf(serbuf, "+%d/%d %5u - %5u\n", buf[15] >> 4, buf[15] & 15, buf[18] << 8 | buf[19], buf[16] << 8 | buf[17]);
+        if (respget[4] > 11) {
+            sprintf(serbuf, "+%d/%d %5u - %5u\r\n", respget[15] >> 4, respget[15] & 15, respget[18] << 8 | respget[19],
+              respget[16] << 8 | respget[17]);
             printser(serbuf);
         }
     }
     // sweep definitions must stay within the sections above
-    makecmd(sendbuf, slice, 0xa, REQMAXSWEEPINDEX, 0, NULL);
-    sendcmd(sendbuf, RESPMAXSWEEPINDEX, buf);
-    sprintf(serbuf, "SweepMax: %d\n", buf[5]);
+    makecmd(cmdsend, slice, 0xa, REQMAXSWEEPINDEX, 0, NULL);
+    sendcmd(cmdsend, RESPMAXSWEEPINDEX, respget);
+    sprintf(serbuf, "MaxSweepIndex: %d (+1 for number of definitions)\r\n", respget[5]);
     printser(serbuf);
-    unsigned int maxswp = buf[5];
+    maxswp = respget[5];
+}
+
+void sweep2()
+{
+    int ix, ret;
     // read sweep sections
-    makecmd(sendbuf, slice, 0xa, REQALLSWEEPDEFINITIONS, 0, NULL);
-    sendcmd(sendbuf, RESPSWEEPDEFINITION, buf);
-    sprintf(serbuf, "SweepDef: %d Top:%5u Bot:%5u\n", buf[5] & 63, buf[6] << 8 | buf[7], buf[8] << 8 | buf[9]);
+    makecmd(cmdsend, slice, 0xa, REQALLSWEEPDEFINITIONS, 0, NULL);
+    sendcmd(cmdsend, RESPSWEEPDEFINITION, respget);
+    sprintf(serbuf, "SweepDef: %d Low:%5u High:%5u\r\n", respget[5] & 63, respget[8] << 8 | respget[9],
+      respget[6] << 8 | respget[7]);
     printser(serbuf);
     for (ix = 0; ix < maxswp;) {
-        ret = readpkt(buf);
+        ret = readpkt(respget);
         if (ret < 5)
             continue;
-        if (buf[3] != 0x17)
+        if (respget[3] != 0x17)
             continue;
         ix++;
-        sprintf(serbuf, "SweepDef: %d Top:%5u Bot:%5u\n", buf[5] & 63, buf[6] << 8 | buf[7], buf[8] << 8 | buf[9]);
+        sprintf(serbuf, "SweepDef: %d Low:%5u High:%5u\r\n", respget[5] & 63, respget[8] << 8 | respget[9],
+          respget[6] << 8 | respget[7]);
         printser(serbuf);
     }
+}
+
+static unsigned getword()
+{
+    unsigned ret = 0;
+    unsigned char c;
+    for (;;) {
+        while (inhead == intail)
+            readpkt(respget);
+        c = inbuf[intail++];
+        if (c >= ' ' && c < 127) {
+            while (!(UCSR0A & 0x20));
+            UDR0 = c;
+        }
+        switch (c) {
+        case '0':
+        case '1':
+        case '2':
+        case '3':
+        case '4':
+        case '5':
+        case '6':
+        case '7':
+        case '8':
+        case '9':
+            ret *= 10;
+            ret += c - '0';
+            break;
+        case 127:
+        case 8:
+            ret /= 10;
+            printser("\b \b");
+            break;
+        case '\r':
+            return ret;
+        case 0x15:
+            ret = 0;
+            printser("\r            \r");
+            break;
+        case 0x1b:
+            return 0;
+        default:
+            break;
+        }
+    }
+}
+
+static void sweepset()
+{
+    int ix, iy;
+    unsigned low[20], high[20];
+
+    syncresp();
+
+    sweep1();
+    sweep2();
+    printser("Enter Definition Ranges, low and high, 0 to end\r\n");
+    for (ix = 0; ix <= maxswp; ix++) {
+        sprintf(serbuf, "Def %d Low:\r\n", ix);
+        printser(serbuf);
+        low[ix] = getword();
+        printser("\r\n");
+        if (low[ix] == 0)
+            break;
+        sprintf(serbuf, "Def %d High:\r\n", ix);
+        printser(serbuf);
+        high[ix] = getword();
+        printser("\r\n");
+        if (high[ix] == 0)
+            break;
+    }
+    // print and ask to commit
+    if (!ix)
+        return;
+
+    for (iy = 0; iy < ix; iy++) {
+        sprintf(serbuf, "%2d: %5u - %5u\r\n", iy + 1, low[iy], high[iy]);
+        printser(serbuf);
+    }
+    printser("Write to V1? (Y/N):");
+    while (inhead == intail)
+        readpkt(respget);
+    if (inbuf[intail] != 'Y' && inbuf[intail] != 'y') {
+        intail++;
+        return;
+    }
+    intail++;
+    for (iy = 0; iy < ix; iy++) {
+        unsigned char wrsbuf[5];
+        // write, commit on the last.
+        wrsbuf[0] = 0x80 | iy;
+        if (iy == ix - 1)
+            wrsbuf[0] |= 0x40;
+        wrsbuf[1] = high[iy] >> 8;
+        wrsbuf[2] = high[iy];
+        wrsbuf[3] = low[iy] >> 8;
+        wrsbuf[4] = low[iy];
+        makecmd(cmdsend, slice, 0xa, REQWRITESWEEPDEFINITIONS, 5, wrsbuf);
+        sendcmd(cmdsend, NORESPONSE, respget);
+        sprintf(serbuf, "Wrote %2d: %5u - %5u\r\n", iy, low[iy], high[iy]);
+        printser(serbuf);
+    }
+    // get write response and decode errors.
+    for (;;) {
+        iy = readpkt(respget);
+        if (iy < 6)
+            continue;
+        if (respget[3] == RESPSWEEPWRITERESULT)
+            break;
+    }
+    if (respget[5]) {
+        sprintf(serbuf, "Write Error in index %d\r\n", respget[5] - 1);
+        printser(serbuf);
+    }
+    else
+        printser("Write Successfup\r\n");
+    sweep2();
+}
+
+static void defaultsweeps()
+{
+    syncresp();
+    makecmd(cmdsend, slice, 0xa, REQDEFAULTSWEEPS, 0, NULL);
+    sendcmd(cmdsend, NORESPONSE, respget);
+    printser("Default Sweeps Done, Please use infoscan to confirm\r\n");
+}
+
+// This setup can be used for Savvy override and unmute setting, by changing the command
+static void setmode(unsigned char mode)
+{                               // 1=AllBogeys, 2=Logic, 3=AdvancedLogic
+    syncresp();
+    makecmd(cmdsend, slice, 0xa, REQCHANGEMODE, 1, &mode);
+    sendcmd(cmdsend, NORESPONSE, respget);
+}
+
+// This setup can be used for display on/off, mute on/off, by changing the command
+static void factorydefaults()
+{
+    syncresp();
+    makecmd(cmdsend, slice, 0xa, REQFACTORYDEFAULT, 0, NULL);
+    sendcmd(cmdsend, NORESPONSE, respget);
+}
+
+void usershow()
+{
+    int ix;
+    // User settings
+    makecmd(cmdsend, slice, 0xa, REQUSERBYTES, 0, NULL);
+    sendcmd(cmdsend, RESPUSERBYTES, respget);
+    char userset[] = "12345678AbCdEFGHJuUtL   ";
+    printser("UserSet: (default) ");
+    for (ix = 0; ix < 8; ix++) {
+        sprintf(serbuf, "%c", (respget[5] >> ix) & 1 ? userset[ix] : '_');
+        printser(serbuf);
+    }
+    for (ix = 0; ix < 8; ix++) {
+        sprintf(serbuf, "%c", (respget[6] >> ix) & 1 ? userset[ix + 8] : '_');
+        printser(serbuf);
+    }
+    for (ix = 0; ix < 8; ix++) {
+        sprintf(serbuf, "%c", (respget[7] >> ix) & 1 ? userset[ix + 16] : '_');
+        printser(serbuf);
+    }
+    printser("\r\nUserSet: (changed) ");
+    for (ix = 0; ix < 8; ix++) {
+        sprintf(serbuf, "%c", (respget[5] >> ix) & 1 ? '_' : userset[ix]);
+        printser(serbuf);
+    }
+    for (ix = 0; ix < 8; ix++) {
+        sprintf(serbuf, "%c", (respget[6] >> ix) & 1 ? '_' : userset[ix + 8]);
+        printser(serbuf);
+    }
+    for (ix = 0; ix < 8; ix++) {
+        sprintf(serbuf, "%c", (respget[7] >> ix) & 1 ? '_' : userset[ix + 16]);
+        printser(serbuf);
+    }
+    printser("\r\n");
+}
+
+// prototype - need to add set/reset dialog and edit the buffer
+static void userbytes()
+{
+    syncresp();
+    printser("Old\r\n");
+    usershow();
+    printser("Updating\r\n");
+
+
+    // Edit userbytes at respget[5-7]
+
+
+    makecmd(cmdsend, slice, 0xa, REQWRITEUSERBYTES, 6, &respget[5]);
+    sendcmd(cmdsend, NORESPONSE, respget);
+    printser("New\r\n");
+    usershow();
+}
+
+static void infoscan()
+{
+    int ix;
+
+    //    sprintf( serbuf, "VN: %d: %02x %02x %02x %02x %02x %02x %02x\r\n", ix, cmdsend[0], cmdsend[1], cmdsend[2], cmdsend[3], cmdsend[4], cmdsend[5], cmdsend[6] );
+    printser("=====INFOSCAN=====\r\n");
+    syncresp();
+
+    // do commands
+    makecmd(cmdsend, slice, 0xa, REQVERSION, 0, NULL);
+    sendcmd(cmdsend, RESPVERSION, respget);
+    printser("V1 Version: ");
+
+    for (ix = 0; ix < respget[4] - 1; ix++) {
+        sprintf(serbuf, "%c", respget[5 + ix] < 127 && respget[5 + ix] > 31 ? respget[5 + ix] : '.');
+        printser(serbuf);
+    }
+    printser("\r\n");
+
+    makecmd(cmdsend, slice, 0xa, REQSERIALNUMBER, 0, NULL);
+    sendcmd(cmdsend, RESPSERIALNUMBER, respget);
+    printser("V1 SerialNo: ");
+    for (ix = 0; ix < respget[4] - 1; ix++) {
+        sprintf(serbuf, "%c", respget[5 + ix] < 127 && respget[5 + ix] > 31 ? respget[5 + ix] : '.');
+        printser(serbuf);
+    }
+    printser("\r\n");
+
+    makecmd(cmdsend, slice, 0xa, REQBATTERYVOLTAGE, 0, NULL);
+    sendcmd(cmdsend, RESPBATTERYVOLTAGE, respget);
+    sprintf(serbuf, "BattVolt: %d.%02d\r\n", respget[5], respget[6]);
+    printser(serbuf);
+
+    usershow();
+
+    sweep1();
+    sweep2();
 
     // Concealed Display
-    makecmd(sendbuf, slice, 0, REQVERSION, 0, NULL);
-    sendcmd(sendbuf, RESPVERSION, buf);
+    makecmd(cmdsend, slice, 0, REQVERSION, 0, NULL);
+    sendcmd(cmdsend, RESPVERSION, respget);
     printser("CD Version: ");
-    for (ix = 0; ix < buf[4] - 1; ix++) {
-        sprintf(serbuf, "%c", buf[5 + ix] < 127 && buf[5 + ix] > 31 ? buf[5 + ix] : '.');
+    for (ix = 0; ix < respget[4] - 1; ix++) {
+        sprintf(serbuf, "%c", respget[5 + ix] < 127 && respget[5 + ix] > 31 ? respget[5 + ix] : '.');
         printser(serbuf);
     }
-    printser("\n");
+    printser("\r\n");
 
     // Remote Audio
-    makecmd(sendbuf, slice, 1, REQVERSION, 0, NULL);
-    sendcmd(sendbuf, RESPVERSION, buf);
+    makecmd(cmdsend, slice, 1, REQVERSION, 0, NULL);
+    sendcmd(cmdsend, RESPVERSION, respget);
     printser("RA Version: ");
-    for (ix = 0; ix < buf[4] - 1; ix++) {
-        sprintf(serbuf, "%c", buf[5 + ix] < 127 && buf[5 + ix] > 31 ? buf[5 + ix] : '.');
+    for (ix = 0; ix < respget[4] - 1; ix++) {
+        sprintf(serbuf, "%c", respget[5 + ix] < 127 && respget[5 + ix] > 31 ? respget[5 + ix] : '.');
         printser(serbuf);
     }
-    printser("\n");
+    printser("\r\n");
 
     // Savvy
-    makecmd(sendbuf, slice, 2, REQVERSION, 0, NULL);
-    sendcmd(sendbuf, RESPVERSION, buf);
+    makecmd(cmdsend, slice, 2, REQVERSION, 0, NULL);
+    sendcmd(cmdsend, RESPVERSION, respget);
     printser("SV Version: ");
-    for (ix = 0; ix < buf[4] - 1; ix++) {
-        sprintf(serbuf, "%c", buf[5 + ix] < 127 && buf[5 + ix] > 31 ? buf[5 + ix] : '.');
+    for (ix = 0; ix < respget[4] - 1; ix++) {
+        sprintf(serbuf, "%c", respget[5 + ix] < 127 && respget[5 + ix] > 31 ? respget[5 + ix] : '.');
         printser(serbuf);
     }
-    printser("\n");
+    printser("\r\n");
 
-    makecmd(sendbuf, slice, 2, REQSERIALNUMBER, 0, NULL);
-    sendcmd(sendbuf, RESPSERIALNUMBER, buf);
+    makecmd(cmdsend, slice, 2, REQSERIALNUMBER, 0, NULL);
+    sendcmd(cmdsend, RESPSERIALNUMBER, respget);
     printser("SV SerialNo: ");
-    for (ix = 0; ix < buf[4] - 1; ix++) {
-        sprintf(serbuf, "%c", buf[5 + ix] < 127 && buf[5 + ix] > 31 ? buf[5 + ix] : '.');
+    for (ix = 0; ix < respget[4] - 1; ix++) {
+        sprintf(serbuf, "%c", respget[5 + ix] < 127 && respget[5 + ix] > 31 ? respget[5 + ix] : '.');
         printser(serbuf);
     }
-    printser("\n");
+    printser("\r\n");
 
-    makecmd(sendbuf, slice, 2, REQSAVVYSTATUS, 0, NULL);
-    sendcmd(sendbuf, RESPSAVVYSTATUS, buf);
-    sprintf(serbuf, "SavvyStat: ThreshKPH:%d (unmu ena: throvrd):%d\n", buf[5], buf[6]);
+    makecmd(cmdsend, slice, 2, REQSAVVYSTATUS, 0, NULL);
+    sendcmd(cmdsend, RESPSAVVYSTATUS, respget);
+    sprintf(serbuf, "SavvyStat: ThreshKPH:%d (unmu ena: throvrd):%d\r\n", respget[5], respget[6]);
     printser(serbuf);
-    makecmd(sendbuf, slice, 2, REQVEHICLESPEED, 0, NULL);
-    sendcmd(sendbuf, RESPVEHICLESPEED, buf);
-    sprintf(serbuf, "SavvyVehSpd: %d kph\n", buf[5]);
+    makecmd(cmdsend, slice, 2, REQVEHICLESPEED, 0, NULL);
+    sendcmd(cmdsend, RESPVEHICLESPEED, respget);
+    sprintf(serbuf, "SavvyVehSpd: %d kph\r\n", respget[5]);
     printser(serbuf);
-    makecmd(sendbuf, slice, 0xa, REQSTARTALERTDATA, 0, NULL);
-    sendcmd(sendbuf, NORESPONSE, buf);
+    printser("=====END INFOSCAN=====\r\n");
+}
+
+void alerts()
+{
+    int ix;
+    syncresp();
+    printser("=====ALERTS=====\r\n");
+    makecmd(cmdsend, slice, 0xa, REQSTARTALERTDATA, 0, NULL);
+    sendcmd(cmdsend, NORESPONSE, respget);
     for (;;) {
-        printser("===\n");
+        if (inhead != intail) {
+            intail = inhead;
+            break;
+        }
+        printser("===\r\n");
         ix = v1alerts;
         while (ix == v1alerts)
-            readpkt(buf);
+            readpkt(respget);
         for (ix = 0; ix < (v1alertout[0][0] & 15); ix++) {
             unsigned char *b = v1alertout[ix];
             unsigned char typ[] = "LAKXU^-v", t;
@@ -714,10 +900,65 @@ void v1test(void)
                 sprintf(serbuf, "!");
                 printser(serbuf);
             }
-            printser("\n");
+            printser("\r\n");
         }
     }
-    return;
+    makecmd(cmdsend, slice, 0xa, REQSTOPALERTDATA, 0, NULL);
+    sendcmd(cmdsend, NORESPONSE, respget);
+    printser("=====END ALERTS=====\r\n");
+}
+
+/*========================================================================*/
+void loop(void)
+{
+    int ret;
+
+    printser("V1MegaTool\r\n");
+
+    for (;;) {                  // get at least one inf packet
+        ret = readpkt(respget);
+        if (ret < 5)
+            continue;
+        if (respget[3] == INFDISPLAYDATA)
+            break;
+    }
+
+    printser("A-alerts, I-infoscan, D-DefaultSweep, S-SetSweeps. T-transparent\r\n");
+    while (inhead == intail)
+        readpkt(respget);
+
+    switch (inbuf[intail++]) {
+    case 'A':
+    case 'a':
+        alerts();
+        break;
+    case 'I':
+    case 'i':
+        infoscan();
+        break;
+    case 'S':
+    case 's':
+        sweepset();
+        break;
+    case 'D':
+    case 'd':
+        defaultsweeps();
+        break;
+    case 'T':
+    case 't':
+        transp = 1; // act like bluetooth port 
+	while( transp )
+	    sleep_mode();
+        break;
+
+    default:
+        break;
+    }
+
+}
+
+    // should worry about timeslice holdoff.
+
     /*
 
        char sevs2ascii[] = {
@@ -741,28 +982,21 @@ void v1test(void)
        '.', 'F', '.', 'P', 'h', '.', 'H', 'A',
        't', 'E', '.', '.', 'b', '6', '.', '8'
        };
-       sprintf( serbuf,"Disp: %c%c %02x %02x ", sevs2ascii[buf[5] & 0x7f], buf[5] & 0x80 ? 'o' : ' ', buf[5], buf[6] ^ buf[5]);
+       sprintf( serbuf,"Disp: %c%c %02x %02x ", sevs2ascii[respget[5] & 0x7f], respget[5] & 0x80 ? 'o' : ' ', respget[5], respget[6] ^ respget[5]);
        for (ix = 0; ix < 8; ix++)
-       sprintf( serbuf,"%c", (buf[7] >> ix) & 1 ? '*' : '.');
+       sprintf( serbuf,"%c", (respget[7] >> ix) & 1 ? '*' : '.');
 
        //bit 0-7: Laser, Ka, K, X, -, Front, Side, Rear
-       sprintf( serbuf," %02x %02x", buf[8], buf[9] ^ buf[8]);
+       sprintf( serbuf," %02x %02x", respget[8], respget[9] ^ respget[8]);
        //bit 0-7: Mute, TSHold, SysUp, DispOn, Euro, Custom, -, -
-       sprintf( serbuf," %02x\n", buf[10]);
+       sprintf( serbuf," %02x\r\n", respget[10]);
        break;
 
      */
-}
 
 /*-------------------------------------------------------------------------*/
-int main(void)
+void setup(void)
 {
-
-    /* for testing
-       inmsgstate = 4;
-       strcpy_P( inmsgbuf, PSTR("\xaa\xda\xe4\x41\x01\xaa\xab") );
-       inmsglen = 7;
-     */
     v1state = inmsgstate = inmsglen = 0;
 
     // UART init
@@ -815,9 +1049,11 @@ int main(void)
     // and sleep between events
     set_sleep_mode(SLEEP_MODE_IDLE);
 
-    v1test();
+}
 
-    for (;;) {
-        sleep_mode();
-    }
+int main()
+{
+    setup();
+    for (;;)
+        loop();
 }

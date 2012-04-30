@@ -48,10 +48,13 @@ work with any Mega compatible, but older boards use a 1280, newer ones
 use a 2560, so check which one you have.
 
 Once loaded, open a terminal program, set to 57600 baud, and hit
-return.  It will do a scan of the bus and dump any interesting
-information, then enable alerts and print them.  Note if alerts are
-enabled when you restart it might take a few seconds to get some
-things (e.g. battery voltage).  There is a "v1 busy message" which is
+return.  It will show a menu with multiple commands.  Infoscan looks
+for V1, CD, RA, and Savvy and returns all the information available.
+Alerts enables and shows alerts.  DefaultSweep will reset sweeps.
+SetSweep will allow you to write a user set of sweeps.  See the V1
+docs for how to make it valid.
+
+There is a "v1 busy message" which is
 currently disabled but would show up if this is happening.
 
 Sample Output:
@@ -78,6 +81,8 @@ SV Version: S0.0099
 SV SerialNo: [redacted]
 SavvyStat: ThreshKPH:56 (unmu ena: throvrd):2
 SavvyVehSpd: 0 kph
+
+
 ===
  1/ 1 35027   0 ^v 142 Av!
 ===
