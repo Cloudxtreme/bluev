@@ -155,8 +155,8 @@ ISR(TIMER4_COMPB_vect)
 
 // This tracks the V1 infDisplayData packet to sync the ESP cycle
 static unsigned char v1state, thislen;
-unsigned char infDisp[] = "\xaa\xd8\xea\x31\x09";       // put in Flash?
-void dostate(unsigned char val)
+static unsigned char infDisp[] = "\xaa\xd8\xea\x31\x09";       // put in Flash?
+static void dostate(unsigned char val)
 {
     // FIXME - hardcoded packet length
     // on the fly comparison of the first 5 bytes of the infDisplay packet
@@ -303,9 +303,9 @@ ISR(TIMER4_CAPT_vect)
 
 #define NORESPONSE (0xfe)
 
-unsigned char tstnocks = 0;
+static unsigned char tstnocks = 0;
 
-int makecmd(unsigned char *buf, unsigned char src, unsigned char dst, unsigned char pkt, unsigned char len, unsigned char *param)
+static int makecmd(unsigned char *buf, unsigned char src, unsigned char dst, unsigned char pkt, unsigned char len, unsigned char *param)
 {
     if (len > 16)
         return 0;
@@ -335,9 +335,9 @@ int makecmd(unsigned char *buf, unsigned char src, unsigned char dst, unsigned c
     return b - buf;
 };
 
-unsigned char v1idd = 0, v1infdisplaydata[8];
-unsigned char v1alerts = 0, v1alerttemp[16][7], v1alertout[16][7];
-unsigned char cddr = 0;
+static unsigned char v1idd = 0, v1infdisplaydata[8];
+static unsigned char v1alerts = 0, v1alerttemp[16][7], v1alertout[16][7];
+static unsigned char cddr = 0;
 
 static int readv1rx(void)
 {
@@ -355,7 +355,7 @@ static void printser(char *str)
     }
 }
 
-int readpkt(unsigned char *buf)
+static int readpkt(unsigned char *buf)
 {
     unsigned char len, ix;
     buf[0] = 0;
@@ -431,7 +431,7 @@ int readpkt(unsigned char *buf)
     }
 }
 
-int sendcmd(unsigned char *thiscmd, unsigned char resp, unsigned char *buf)
+static int sendcmd(unsigned char *thiscmd, unsigned char resp, unsigned char *buf)
 {
     unsigned char ix;
     int ret;
@@ -499,7 +499,7 @@ int sendcmd(unsigned char *thiscmd, unsigned char resp, unsigned char *buf)
 static unsigned char respget[22], cmdsend[22];
 static unsigned int maxswp = 5;
 
-void syncresp() {
+static void syncresp() {
     int iy;
     // send one request version to clear out the incoming packet respgetfer
     makecmd(cmdsend, slice, 0xa, REQVERSION, 0, NULL);
@@ -513,7 +513,7 @@ void syncresp() {
     }
 }
 
-void sweep1()
+static void sweep1()
 {
     int ix, ret;
     // Sweep Sections and Definitions
@@ -565,7 +565,7 @@ void sweep1()
     maxswp = respget[5];
 }
 
-void sweep2()
+static void sweep2()
 {
     int ix, ret;
     // read sweep sections
@@ -728,7 +728,7 @@ static void factorydefaults()
     sendcmd(cmdsend, NORESPONSE, respget);
 }
 
-void usershow()
+static void usershow()
 {
     int ix;
     // User settings
@@ -870,7 +870,7 @@ static void infoscan()
     printser("=====END INFOSCAN=====\r\n");
 }
 
-void alerts()
+static void alerts()
 {
     int ix;
     syncresp();
@@ -1050,10 +1050,11 @@ void setup(void)
     set_sleep_mode(SLEEP_MODE_IDLE);
 
 }
-
+#ifdef STANDALONE
 int main()
 {
     setup();
     for (;;)
         loop();
 }
+#endif
