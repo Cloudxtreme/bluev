@@ -29,6 +29,15 @@ power LED should turn on if you have this right.
 The DATA line goes both to pin 49 on the edge opposite the power plug
 and to pin 18/TX1 near the adjacent corner.
 
+RX2 and TX2 are now the transparent ports if you want to connect a
+bluetooth module or something else.  Note that it will collide with
+data from the main port so you should not do anything with the USB
+serial port if you are using serial port 2.
+
+The PC Command port now just waits for a return, but eventually it
+will be a simple interface where you can use a terminal program to get
+information and reconfigure your V1.
+
 You will need the IDE from arduino.cc to compile and flash the
 program.  It is available for the PC, Mac, and Linux.
 
