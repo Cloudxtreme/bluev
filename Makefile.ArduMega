@@ -8,7 +8,7 @@ OPTIMIZE	= -Os
 DUDE_PRG	= stk500v1
 DUDE_PORT	= /dev/ttyUSB0
 
-DEFS		=
+DEFS		= -DSTANDALONE
 LIBS		=
 
 CC		= avr-gcc
