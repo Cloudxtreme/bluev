@@ -41,6 +41,9 @@ information and reconfigure your V1.
 You will need the IDE from arduino.cc to compile and flash the
 program.  It is available for the PC, Mac, and Linux.
 
+NOTE: The "paste into a sketch" no longer works".  You will need to
+manually compile it or use the .hex file.
+
 The code for bluevmega.c can be pasted into a sketch (that is what it
 calls protrams) and compiled and uploaded by pressing the "play"
 button.  Remember to set the COM port and the board type (it should
