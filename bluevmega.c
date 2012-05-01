@@ -6,7 +6,9 @@
 #include <stdio.h>
 
 //#define F_CPU         18432000
+#ifndef F_CPU
 #define F_CPU  	16000000
+#endif
 #define BAUD 	57600
 
 #define PRESCALE1 8
@@ -16,14 +18,15 @@
 
 /*-------------------------------------------------------------------------*/
 #define INMSGSIZE 24
-static unsigned char inmsgbuf[INMSGSIZE], inmsglen, inmsgcks;
-static unsigned char slice = 4;
-static unsigned char transp = 0;
+static unsigned char inmsgbuf[INMSGSIZE];
+static volatile unsigned char inmsglen, inmsgcks;
+static volatile unsigned char slice = 4;
+static volatile unsigned char transp = 0;
 
-static unsigned char nochecksum = 0;
+static volatile unsigned char nochecksum = 0;
 #define ANYSLICE
 // Received character from bluetooth
-static unsigned char inmsgstate;
+static volatile unsigned char inmsgstate;
 static void inchar(unsigned char c)
 {
     switch (inmsgstate) {
@@ -89,8 +92,8 @@ ISR(USART2_RX_vect)
     inchar(UDR2);
 }
 
-static unsigned char inbuf[256], inhead = 0, intail = 0;
-static unsigned char v1buf[256], v1head = 0, v1tail = 0;
+static unsigned char inbuf[256], v1buf[256];
+static volatile unsigned char v1head = 0, v1tail = 0, inhead = 0, intail = 0;
 ISR(USART0_RX_vect)
 {
     if (transp) {
@@ -101,7 +104,7 @@ ISR(USART0_RX_vect)
 }
 
 /*-------------------------------------------------------------------------*/
-static unsigned int bitcnt;
+static volatile unsigned int bitcnt;
 static unsigned int frametime;
 // Time Slice processor
 // This counts character times to find the slot to transmit.  
@@ -154,7 +157,7 @@ ISR(TIMER4_COMPB_vect)
 }
 
 // This tracks the V1 infDisplayData packet to sync the ESP cycle
-static unsigned char v1state, thislen;
+static volatile unsigned char v1state, thislen;
 static unsigned char infDisp[] = "\xaa\xd8\xea\x31\x09";       // put in Flash?
 static void dostate(unsigned char val)
 {
@@ -212,6 +215,7 @@ ISR(TIMER4_COMPA_vect)
             outchar |= 0x80;
         }
         UDR2 = outchar;
+          // UDR0=64|63&outchar;
         if (transp)
             UDR0 = outchar;
         else
@@ -361,7 +365,11 @@ static int readpkt(unsigned char *buf)
     buf[0] = 0;
     for (;;) {
         while (buf[0] != 0xaa)  // SOF
+        {
             buf[0] = readv1rx();
+//sprintf( serbuf, "%02x", buf[0] );
+//printser( serbuf );
+        }
         buf[1] = readv1rx();
         if ((buf[1] & 0xf0) != 0xd0)
             continue;
@@ -909,7 +917,7 @@ static void alerts()
 }
 
 /*========================================================================*/
-void loop(void)
+void hwloop(void)
 {
     int ret;
 
@@ -995,10 +1003,14 @@ void loop(void)
      */
 
 /*-------------------------------------------------------------------------*/
-void setup(void)
-{
+void hwsetup(void)
+{  
+  cli();
     v1state = inmsgstate = inmsglen = 0;
 
+  TIMSK0=TIMSK1=TIMSK2=TIMSK3=TIMSK4=TIMSK5=0;
+  ADCSRA= 0;
+  
     // UART init
 #include <util/setbaud.h>
     UBRR1H = UBRRH_VALUE;
@@ -1043,18 +1055,17 @@ void setup(void)
 
     // clear and enable Input Capture interrupt 
     TIFR4 |= _BV(ICF4) | _BV(TOV4) | _BV(OCF4A) | _BV(OCF4B);
-    TIMSK4 |= _BV(ICIE4);       // enable input capture only
+    TIMSK4 = _BV(ICIE4);       // enable input capture only
 
     sei();                      // enable interrupts
     // and sleep between events
     set_sleep_mode(SLEEP_MODE_IDLE);
-
 }
 #ifdef STANDALONE
 int main()
 {
-    setup();
+    hwsetup();
     for (;;)
-        loop();
+        hwloop();
 }
 #endif
