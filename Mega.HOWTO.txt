@@ -41,31 +41,22 @@ information and reconfigure your V1.
 You will need the IDE from arduino.cc to compile and flash the
 program.  It is available for the PC, Mac, and Linux.
 
-NOTE: The "paste into a sketch" no longer works".  You will need to
-manually compile it or use the .hex file.
+The files bluev.ino and bluevmega.c can be copied into a folder named
+"bluev" in the arduino sketchbook folder, and opened as a sketch (that
+is what it calls protrams) and compiled and uploaded by pressing the
+"play" button.  Remember to set the COM port and the board type (it
+should work with any Mega compatible, but older boards use a 1280,
+newer ones use a 2560, so check which one you have.
 
-Under windows, do "run..." and say "cmd" to get a dos prompt.  Go to
-the arduino-1.0 directory, then down into hardware, tools, avr, bin.
-In there is "avrdude.exe" Copy the bluevmega.hex file into this
-directory.  To program under XP (ymmv) I used:
+You can use the serial monitor and use the top box to send the command
+characters, but a terminal program might be easier.
 
-avrdude.exe -p m1280 -c stk500v1 -P COMxx -U flash:w:bluevmega.hex -C ..\etc\avrdude.conf -b 57600
-
-Use "-p m2560" instead of "-p m1280" for the newer Megas and change
-COMxx to the com port number - you can find it in the device manager.
-
-The code for bluevmega.c can be pasted into a sketch (that is what it
-calls protrams) and compiled and uploaded by pressing the "play"
-button.  Remember to set the COM port and the board type (it should
-work with any Mega compatible, but older boards use a 1280, newer ones
-use a 2560, so check which one you have.
-
-Once loaded, open a terminal program, set to 57600 baud, and hit
-return.  It will show a menu with multiple commands.  Infoscan looks
-for V1, CD, RA, and Savvy and returns all the information available.
-Alerts enables and shows alerts.  DefaultSweep will reset sweeps.
-SetSweep will allow you to write a user set of sweeps.  See the V1
-docs for how to make it valid.
+Open a terminal program on the same COM port as the Arduino IDE used,
+set to 57600 baud, and hit return.  It will show a menu with multiple
+commands.  Infoscan looks for V1, CD, RA, and Savvy and returns all
+the information available.  Alerts enables and shows alerts.
+DefaultSweep will reset sweeps.  SetSweep will allow you to write a
+user set of sweeps.  See the V1 docs for how to make it valid.
 
 There is a "v1 busy message" which is
 currently disabled but would show up if this is happening.
