@@ -1068,4 +1068,7 @@ int main()
     for (;;)
         hwloop();
 }
+#else
+void init() {}
 #endif
+
