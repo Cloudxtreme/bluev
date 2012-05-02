@@ -158,7 +158,7 @@ ISR(TIMER4_COMPB_vect)
 
 // This tracks the V1 infDisplayData packet to sync the ESP cycle
 static volatile unsigned char v1state, thislen;
-static unsigned char infDisp[] = "\xaa\xd8\xea\x31\x09";       // put in Flash?
+static unsigned char infDisp[] = "\xaa\xd8\xea\x31\x09";        // put in Flash?
 static void dostate(unsigned char val)
 {
     // FIXME - hardcoded packet length
@@ -215,7 +215,7 @@ ISR(TIMER4_COMPA_vect)
             outchar |= 0x80;
         }
         UDR2 = outchar;
-          // UDR0=64|63&outchar;
+        // UDR0=64|63&outchar;
         if (transp)
             UDR0 = outchar;
         else
@@ -260,10 +260,10 @@ ISR(TIMER4_CAPT_vect)
 
 /*========================================================================*/
 // V1 Command, Response, and Info packet Processing
+
 /*========================================================================*/
 
 // LOW LEVEL ROUTINES FOR ARDUINO
-
 
 // Read one character from the V1 data stream
 static int readv1rx(void)
@@ -282,13 +282,14 @@ static void printser(char *str)
         UDR0 = *str++;
     }
 }
+
 // print string from progmem
 static void printser_P(const char *p)
 {
-  char c;
+    char c;
     while ((c = pgm_read_byte(p++))) {
         while (!(UCSR0A & _BV(UDRE0)));
-        UDR0 = c;        
+        UDR0 = c;
     }
 }
 
@@ -341,7 +342,7 @@ static void printser_P(const char *p)
 
 #define NORESPONSE (0xfe)
 
-static unsigned char tstnocks = 0; // is this a checksummed V1?
+static unsigned char tstnocks = 0;      // is this a checksummed V1?
 
 // Create a valid V1 command in BUF, return length.  Returns 0 if something is invalid
 // Note it permits source and dest 0-15, not just a source of 3,4,5.
@@ -350,7 +351,7 @@ static unsigned char tstnocks = 0; // is this a checksummed V1?
 // (before and not including the optional checksum which will be handled
 // according to what the infDisplay is doing.
 static int makecmd(unsigned char *buf, unsigned char src, unsigned char dst, unsigned char pkt,
-                    unsigned char len, unsigned char *param)
+  unsigned char len, unsigned char *param)
 {
     if (len > 16)
         return 0;
@@ -394,8 +395,8 @@ static int readpkt(unsigned char *buf)
         while (buf[0] != 0xaa)  // SOF
         {
             buf[0] = readv1rx();
-//sprintf( serbuf, "%02x", buf[0] );
-//printser( serbuf );
+            //sprintf( serbuf, "%02x", buf[0] );
+            //printser( serbuf );
         }
         buf[1] = readv1rx();
         if ((buf[1] & 0xf0) != 0xd0)
@@ -476,7 +477,7 @@ static int sendcmd(unsigned char *thiscmd, unsigned char resp, unsigned char *bu
     inmsglen = thiscmd[4] + 6;
     inmsgstate = 4;
 
-// wait this many packets max for the command to go out on the bus
+    // wait this many packets max for the command to go out on the bus
 #define ECHOTIME 8
     for (ix = 0; ix < ECHOTIME; ix++) { // look for command on bus
         ret = readpkt(buf);
@@ -510,7 +511,7 @@ static int sendcmd(unsigned char *thiscmd, unsigned char resp, unsigned char *bu
             // maybe abort, return -3?
             break;
         case INFV1BUSY:
-        // FIXME, we don't check packet ID
+            // FIXME, we don't check packet ID
 #if 0
             printser_P(PSTR("V1Busy:"));
             for (ix = 0; ix < buf[4] - 1; ix++) {
@@ -556,8 +557,7 @@ static void syncresp() {
 }
 
 // This is the first part of the sweep probe getting the sections and maximum index
-static void sweep1()
-{
+static void sweep1() {
     int ix, ret;
     // Sweep Sections and Definitions
     makecmd(cmdsend, slice, 0xa, REQSWEEPSECTIONS, 0, NULL);
@@ -609,8 +609,7 @@ static void sweep1()
 }
 
 // This is the second part of the sweep probe which gets the actual sweep definitions
-static void sweep2()
-{
+static void sweep2() {
     int ix, ret;
     // read sweep sections
     makecmd(cmdsend, slice, 0xa, REQALLSWEEPDEFINITIONS, 0, NULL);
@@ -632,8 +631,7 @@ static void sweep2()
 }
 
 // user interactive program to get a 16 bit unsigned word (frequency to write sweep)
-static unsigned getword()
-{
+static unsigned getword() {
     unsigned ret = 0;
     unsigned char c;
     for (;;) {
@@ -678,8 +676,7 @@ static unsigned getword()
 }
 
 // Set a new set of sweep definitions
-static void sweepset()
-{
+static void sweepset() {
     int ix, iy;
     unsigned low[20], high[20];
 
@@ -751,8 +748,7 @@ static void sweepset()
 }
 
 // set default sweeps
-static void defaultsweeps()
-{
+static void defaultsweeps() {
     syncresp();
     makecmd(cmdsend, slice, 0xa, REQDEFAULTSWEEPS, 0, NULL);
     sendcmd(cmdsend, NORESPONSE, respget);
@@ -762,25 +758,20 @@ static void defaultsweeps()
 // This setup can be used for Savvy override and unmute setting, by changing the command
 // set scan mode
 // 1=AllBogeys, 2=Logic, 3=AdvancedLogic
-static void setmode(unsigned char mode)
-{                               
+static void setmode(unsigned char mode) {
     syncresp();
     makecmd(cmdsend, slice, 0xa, REQCHANGEMODE, 1, &mode);
     sendcmd(cmdsend, NORESPONSE, respget);
 }
-
-// This setup can be used for display on/off, mute on/off, by changing the command
-// set factory defaults (userbytes)
-static void factorydefaults()
-{
+// This setup can be used for display on/off, mute on/off, by changing the command// set factory defaults (userbytes)
+  static void factorydefaults() {
     syncresp();
     makecmd(cmdsend, slice, 0xa, REQFACTORYDEFAULT, 0, NULL);
     sendcmd(cmdsend, NORESPONSE, respget);
 }
 
 // show user bytes
-static void usershow()
-{
+static void usershow() {
     int ix;
     // User settings
     makecmd(cmdsend, slice, 0xa, REQUSERBYTES, 0, NULL);
@@ -816,16 +807,14 @@ static void usershow()
 }
 
 // prototype - need to add set/reset dialog and edit the buffer
-static void userbytes()
-{
+static void userbytes() {
     syncresp();
     printser_P(PSTR("Old\r\n"));
     usershow();
     printser_P(PSTR("Updating\r\n"));
 
-// INCOMPLETE
+    // INCOMPLETE
     // Edit userbytes at respget[5-7]
-
 
     makecmd(cmdsend, slice, 0xa, REQWRITEUSERBYTES, 6, &respget[5]);
     sendcmd(cmdsend, NORESPONSE, respget);
@@ -834,8 +823,7 @@ static void userbytes()
 }
 
 // Scan for everything I could find in the spec for all devices
-static void infoscan()
-{
+static void infoscan() {
     int ix;
 
     //    sprintf( serbuf, "VN: %d: %02x %02x %02x %02x %02x %02x %02x\r\n", ix, cmdsend[0], cmdsend[1], cmdsend[2], cmdsend[3], cmdsend[4], cmdsend[5], cmdsend[6] );
@@ -923,8 +911,7 @@ static void infoscan()
 }
 
 // Ask for and Displayu (decoded) alerts
-static void alerts()
-{
+static void alerts() {
     int ix;
     syncresp();
     printser_P(PSTR("=====ALERTS=====\r\n"));
@@ -961,36 +948,29 @@ static void alerts()
     printser_P(PSTR("=====END ALERTS=====\r\n"));
 }
 
+const prog_char sevs2ascii[] PROGMEM = {
+" ~'...17_...j..]"
+      "........l...uvJ."
+      "`\".^............" "|.......LC...GU0" "-.......=#.....3" "r./.....c..2o.d." "....\\.4......5y9" ".F.Ph.HAtE..b6.8"};
 
-prog_char sevs2ascii[] PROGMEM = {
-       " ~'...17_...j..]"
-       "........l...uvJ."
-       "`\".^............"
-       "|.......LC...GU0"
-       "-.......=#.....3"
-       "r./.....c..2o.d."
-       "....\\.4......5y9"
-       ".F.Ph.HAtE..b6.8"
-       };
-       
 showinfdata() {
-  int ix;
-       sprintf( serbuf,"Disp: %c%c %02x %02x ", sevs2ascii[respget[5] & 0x7f], respget[5] & 0x80 ? 'o' : ' ', respget[5], respget[6] ^ respget[5]);
-       for (ix = 0; ix < 8; ix++)
-       sprintf( serbuf,"%c", (respget[7] >> ix) & 1 ? '*' : '.');
+    int ix;
+    sprintf(serbuf, "Disp: %c%c %02x %02x ", sevs2ascii[respget[5] & 0x7f], respget[5] & 0x80 ? 'o' : ' ', respget[5],
+      respget[6] ^ respget[5]);
+    for (ix = 0; ix < 8; ix++)
+        sprintf(serbuf, "%c", (respget[7] >> ix) & 1 ? '*' : '.');
 
-       //bit 0-7: Laser, Ka, K, X, -, Front, Side, Rear
-       sprintf( serbuf," %02x %02x", respget[8], respget[9] ^ respget[8]);
-       //bit 0-7: Mute, TSHold, SysUp, DispOn, Euro, Custom, -, -
-       sprintf( serbuf," %02x\r\n", respget[10]);
+    //bit 0-7: Laser, Ka, K, X, -, Front, Side, Rear
+    sprintf(serbuf, " %02x %02x", respget[8], respget[9] ^ respget[8]);
+    //bit 0-7: Mute, TSHold, SysUp, DispOn, Euro, Custom, -, -
+    sprintf(serbuf, " %02x\r\n", respget[10]);
 }
 
 /*========================================================================*/
-void hwloop(void)
-{
+void hwloop(void) {
     int ret;
 
-    printser_P(PSTR("V1MegaTool\r\n"));
+      printser_P(PSTR("V1MegaTool\r\n"));
 
     for (;;) {                  // get at least one inf packet
         ret = readpkt(respget);
@@ -1000,8 +980,7 @@ void hwloop(void)
             break;
     }
     // should give Not Ready message if timeslice holdoff.
-    
-    printser_P(PSTR("A-alerts, I-infoscan, D-DefaultSweep, S-SetSweeps. T-transparent\r\n"));
+      printser_P(PSTR("A-alerts, I-infoscan, D-DefaultSweep, S-SetSweeps. T-transparent\r\n"));
     while (inhead == intail)
         readpkt(respget);
 
@@ -1024,9 +1003,9 @@ void hwloop(void)
         break;
     case 'T':
     case 't':
-        transp = 1; // act like bluetooth port 
-	while( transp )
-	    sleep_mode();
+        transp = 1;             // act like bluetooth port 
+        while (transp)
+            sleep_mode();
         break;
 
     default:
@@ -1036,8 +1015,7 @@ void hwloop(void)
 }
 
 /*-------------------------------------------------------------------------*/
-void hwsetup(void)
-{  
+void hwsetup(void) {
     cli();
     v1state = inmsgstate = inmsglen = polarity = bitcnt = 0;
 
@@ -1048,8 +1026,8 @@ void hwsetup(void)
 #if USE_2X
     UCSR2A = UCSR1A = UCSR0A = _BV(U2X1);
 #endif
-    UCSR2C = UCSR1C = UCSR0C = _BV(UCSZ10) | _BV(UCSZ11); // 8N1
-    UCSR2B = UCSR0B = _BV(TXEN0) | _BV(RXEN0) | _BV(RXCIE0);     // Enable TX and RX
+    UCSR2C = UCSR1C = UCSR0C = _BV(UCSZ10) | _BV(UCSZ11);       // 8N1
+    UCSR2B = UCSR0B = _BV(TXEN0) | _BV(RXEN0) | _BV(RXCIE0);    // Enable TX and RX
     // for UART1, only TX is enabled, and only when sending in the right timeslice
 
     // Timer init
@@ -1061,7 +1039,7 @@ void hwsetup(void)
 
     // clear and enable Input Capture interrupt 
     TIFR4 |= _BV(ICF4) | _BV(TOV4) | _BV(OCF4A) | _BV(OCF4B);
-    TIMSK4 = _BV(ICIE4);       // enable input capture only
+    TIMSK4 = _BV(ICIE4);        // enable input capture only
 
     sei();                      // enable interrupts
     // and sleep between events
