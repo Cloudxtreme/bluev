@@ -433,6 +433,8 @@ static int readpkt(unsigned char *buf)
             memcpy(v1infdisplaydata, buf + 5, 8);
         }
         else if (buf[3] == RESPALERTDATA) {
+            //sprintf(serbuf, "a: %d\n", buf[1] & 0xf);
+            //printser(serbuf);
             // copy to temp until index == total, then move to out and inc
             if (!buf[5]) {      // no alerts
                 if (!v1alertout[0][0]) {        // already zero?
@@ -756,21 +758,6 @@ static void defaultsweeps() {
     printser_P(PSTR("Default Sweeps Done, Please use infoscan to confirm\r\n"));
 }
 
-// This setup can be used for Savvy override and unmute setting, by changing the command
-// set scan mode
-// 1=AllBogeys, 2=Logic, 3=AdvancedLogic
-static void setmode(unsigned char mode) {
-    syncresp();
-    makecmd(cmdsend, slice, 0xa, REQCHANGEMODE, 1, &mode);
-    sendcmd(cmdsend, NORESPONSE, respget);
-}
-// This setup can be used for display on/off, mute on/off, by changing the command// set factory defaults (userbytes)
-  static void factorydefaults() {
-    syncresp();
-    makecmd(cmdsend, slice, 0xa, REQFACTORYDEFAULT, 0, NULL);
-    sendcmd(cmdsend, NORESPONSE, respget);
-}
-
 // show user bytes
 static void usershow() {
     int ix;
@@ -805,22 +792,6 @@ static void usershow() {
         printser(serbuf);
     }
     printser_P(PSTR("\r\n"));
-}
-
-// prototype - need to add set/reset dialog and edit the buffer
-static void userbytes() {
-    syncresp();
-    printser_P(PSTR("Old\r\n"));
-    usershow();
-    printser_P(PSTR("Updating\r\n"));
-
-    // INCOMPLETE
-    // Edit userbytes at respget[5-7]
-
-    makecmd(cmdsend, slice, 0xa, REQWRITEUSERBYTES, 6, &respget[5]);
-    sendcmd(cmdsend, NORESPONSE, respget);
-    printser_P(PSTR("New\r\n"));
-    usershow();
 }
 
 // Scan for everything I could find in the spec for all devices
@@ -1000,70 +971,45 @@ static void showinfdisp() {
     printser_P(PSTR("\r\n"));
 }
 
-/*========================================================================*/
-void hwloop(void) {
-    int ret;
-    unsigned char lastdisp[12];
-        
-    printser_P(PSTR("V1MegaTool\r\n"));
-
-    for (;;) {                  // get at least one inf packet
-        ret = readpkt(respget);
-        if (ret < 5)
-            continue;
-        if (respget[3] == INFDISPLAYDATA)
-            break;
-    }
-    // should give Not Ready message if timeslice holdoff.
-    printser_P(PSTR("A-alerts, I-infoscan, D-DefaultSweep, S-SetSweeps. T-transparent, V-ViewDisplay\r\n"));
-    while (inhead == intail)
-        readpkt(respget);
-
-    switch (inbuf[intail++]) {
-    case 'A':
-    case 'a':
-        alerts();
-        break;
-    case 'I':
-    case 'i':
-        infoscan();
-        break;
-    case 'S':
-    case 's':
-        sweepset();
-        break;
-    case 'D':
-    case 'd':
-        defaultsweeps();
-        break;
-    case 'T':
-    case 't':
-        transp = 1;             // act like bluetooth port 
-        while (transp)
-            sleep_mode();
-        break;
-    case 'V':
-    case 'v':
-        printser_P(PSTR("Mute (ESP)Hold systemUp mainDisp Euro Custom\r\n"));
-        lastdisp[0] = 0;
-        while( inhead == intail ) {
-            ret = readpkt(respget);
-            if (ret < 5)
-                continue;
-            if (respget[3] == INFDISPLAYDATA && memcmp( lastdisp, respget, 12 )) {
-                showinfdisp();
-                memcpy( lastdisp, respget, 12 );
-            }
-        }
-        break;
-    default:
-        break;
-    }
-
+// This setup can be used for Savvy override and unmute setting, by changing the command
+// set scan mode
+// 1=AllBogeys, 2=Logic, 3=AdvancedLogic
+static void setmode(unsigned char mode) {
+    syncresp();
+    makecmd(cmdsend, slice, 0xa, REQCHANGEMODE, 1, &mode);
+    sendcmd(cmdsend, NORESPONSE, respget);
 }
 
-/*-------------------------------------------------------------------------*/
-void hwsetup(void) {
+// no param command without response
+static void quickcommand(cmd) {
+    syncresp();
+    makecmd(cmdsend, slice, 0xa, cmd, 0, NULL);
+    sendcmd(cmdsend, NORESPONSE, respget);
+}
+
+// prototype - need to add set/reset dialog and edit the buffer
+static void userbytes() {
+    syncresp();
+    printser_P(PSTR("Old\r\n"));
+    usershow();
+    printser_P(PSTR("Updating\r\n"));
+
+    // INCOMPLETE
+    // Edit userbytes at respget[5-7]
+
+    makecmd(cmdsend, slice, 0xa, REQWRITEUSERBYTES, 6, &respget[5]);
+    sendcmd(cmdsend, NORESPONSE, respget);
+    printser_P(PSTR("New\r\n"));
+    usershow();
+}
+
+/*========================================================================*/
+#ifdef STANDALONE
+int main()
+#else
+void init()
+#endif
+{
     cli();
     v1state = inmsgstate = inmsglen = polarity = bitcnt = 0;
 
@@ -1092,16 +1038,77 @@ void hwsetup(void) {
     sei();                      // enable interrupts
     // and sleep between events
     set_sleep_mode(SLEEP_MODE_IDLE);
-}
-#ifdef STANDALONE
-int main()
-#else
-void init()
-#endif
-{
-    hwsetup();
-    for (;;)
-        hwloop();
+
+
+    int ret;
+    unsigned char lastdisp[12];
+        
+    printser_P(PSTR("V1MegaTool\r\n"));
+    for(;;) {
+        for (;;) {                  // get at least one inf packet
+            ret = readpkt(respget);
+            if (ret < 5)
+                continue;
+            if (respget[3] == INFDISPLAYDATA)
+                break;
+        }
+        // should give Not Ready message if timeslice holdoff.
+        printser_P(PSTR("A-alerts, I-infoscan, D-DefaultSweep, S-SetSweeps. T-transparent, V-ViewDisplay\r\n"));
+        while (inhead == intail)
+            readpkt(respget);
+    
+        switch (inbuf[intail++]) {
+/*
+quickcommand(REQFACTORYDEFAULT);
+quickcommand(REQTURNOFFMAINDISPLAY);
+quickcommand(REQTURNONMAINDISPLAY);
+quickcommand(REQMUTEON);
+quickcommand(REQMUTEOFF);
+setmode(1); // all bogeys
+setmode(2); // logic
+setmode(3); // advanced logic
+*/
+
+        case 'A':
+        case 'a':
+            alerts();
+            break;
+        case 'I':
+        case 'i':
+            infoscan();
+            break;
+        case 'S':
+        case 's':
+            sweepset();
+            break;
+        case 'D':
+        case 'd':
+            defaultsweeps();
+            break;
+        case 'T':
+        case 't':
+            transp = 1;             // act like bluetooth port 
+            while (transp)
+                sleep_mode();
+            break;
+        case 'V':
+        case 'v':
+            printser_P(PSTR("Mute (ESP)Hold systemUp mainDisp Euro Custom\r\n"));
+            lastdisp[0] = 0;
+            while( inhead == intail ) {
+                ret = readpkt(respget);
+                if (ret < 5)
+                    continue;
+                if (respget[3] == INFDISPLAYDATA && memcmp( lastdisp, respget, 12 )) {
+                    showinfdisp();
+                    memcpy( lastdisp, respget, 12 );
+                }
+            }
+            break;
+        default:
+            break;
+        }
+    }
 }
 
 
