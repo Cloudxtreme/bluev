@@ -614,7 +614,8 @@ static void sweep2() {
     // read sweep sections
     makecmd(cmdsend, slice, 0xa, REQALLSWEEPDEFINITIONS, 0, NULL);
     sendcmd(cmdsend, RESPSWEEPDEFINITION, respget);
-    sprintf(serbuf, "SweepDef: %d Low:%5u High:%5u\r\n", respget[5] & 63, respget[8] << 8 | respget[9],
+        printser_P(PSTR("SweepDefinitions:\r\n"));
+    sprintf(serbuf, "+%d/%d Low:%5u High:%5u\r\n", 1 + (respget[5] & 63), 1 + maxswp, respget[8] << 8 | respget[9],
       respget[6] << 8 | respget[7]);
     printser(serbuf);
     for (ix = 0; ix < maxswp;) {
@@ -624,7 +625,7 @@ static void sweep2() {
         if (respget[3] != 0x17)
             continue;
         ix++;
-        sprintf(serbuf, "SweepDef: %d Low:%5u High:%5u\r\n", respget[5] & 63, respget[8] << 8 | respget[9],
+        sprintf(serbuf, "+%d/%d Low:%5u High:%5u\r\n", 1 + (respget[5] & 63), 1 + maxswp, respget[8] << 8 | respget[9],
           respget[6] << 8 | respget[7]);
         printser(serbuf);
     }
@@ -686,13 +687,13 @@ static void sweepset() {
     sweep2();
     printser_P(PSTR("Enter Definition Ranges, low and high, 0 to end\r\n"));
     for (ix = 0; ix <= maxswp; ix++) {
-        sprintf(serbuf, "Def %d Low:\r\n", ix);
+        sprintf(serbuf, "Def %d Low:\r\n", ix + 1);
         printser(serbuf);
         low[ix] = getword();
         printser_P(PSTR("\r\n"));
         if (low[ix] == 0)
             break;
-        sprintf(serbuf, "Def %d High:\r\n", ix);
+        sprintf(serbuf, "Def %d High:\r\n", ix + 1);
         printser(serbuf);
         high[ix] = getword();
         printser_P(PSTR("\r\n"));
@@ -727,7 +728,7 @@ static void sweepset() {
         wrsbuf[4] = low[iy];
         makecmd(cmdsend, slice, 0xa, REQWRITESWEEPDEFINITIONS, 5, wrsbuf);
         sendcmd(cmdsend, NORESPONSE, respget);
-        sprintf(serbuf, "Wrote %2d: %5u - %5u\r\n", iy, low[iy], high[iy]);
+        sprintf(serbuf, "Wrote %2d: %5u - %5u\r\n", iy + 1, low[iy], high[iy]);
         printser(serbuf);
     }
     // get write response and decode errors.
@@ -910,7 +911,8 @@ static void infoscan() {
     printser_P(PSTR("=====END INFOSCAN=====\r\n"));
 }
 
-// Ask for and Displayu (decoded) alerts
+// Ask for and Display (decoded) alerts
+static const unsigned char typ[] = "LAKXU^-v", t;
 static void alerts() {
     int ix;
     syncresp();
@@ -927,8 +929,7 @@ static void alerts() {
         while (ix == v1alerts)
             readpkt(respget);
         for (ix = 0; ix < (v1alertout[0][0] & 15); ix++) {
-            unsigned char *b = v1alertout[ix];
-            unsigned char typ[] = "LAKXU^-v", t;
+            unsigned char *b = v1alertout[ix], t;
             sprintf(serbuf, "%2d/%2d %5u %3d ^v %3d ", b[0] >> 4, b[0] & 15, b[1] << 8 | b[2], b[3], b[4]);
             printser(serbuf);
             for (t = 0; t < 8; t++)
@@ -949,28 +950,62 @@ static void alerts() {
 }
 
 const prog_char sevs2ascii[] PROGMEM = {
-" ~'...17_...j..]"
+      " ~'...17_...j..]"
       "........l...uvJ."
-      "`\".^............" "|.......LC...GU0" "-.......=#.....3" "r./.....c..2o.d." "....\\.4......5y9" ".F.Ph.HAtE..b6.8"};
+      "`\".^............" 
+      "|.......LC...GU0" 
+      "-.......=#.....3" 
+      "r./.....c..2o.d." 
+      "....\\.4......5y9" 
+      ".F.Ph.HAtE..b6.8"
+    };
 
-showinfdata() {
+static void showinfdisp() {
     int ix;
-    sprintf(serbuf, "Disp: %c%c %02x %02x ", sevs2ascii[respget[5] & 0x7f], respget[5] & 0x80 ? 'o' : ' ', respget[5],
+    sprintf(serbuf, "%c%c %02x %02x ", pgm_read_byte(sevs2ascii + (respget[5] & 0x7f)), respget[5] & 0x80 ? 'o' : ' ', respget[5],
       respget[6] ^ respget[5]);
-    for (ix = 0; ix < 8; ix++)
+    printser(serbuf);
+    for (ix = 0; ix < 8; ix++) {
         sprintf(serbuf, "%c", (respget[7] >> ix) & 1 ? '*' : '.');
-
-    //bit 0-7: Laser, Ka, K, X, -, Front, Side, Rear
-    sprintf(serbuf, " %02x %02x", respget[8], respget[9] ^ respget[8]);
+        printser(serbuf);
+    }
+    printser(" ");
+        
+    for (ix = 0; ix < 8; ix++)
+        if ((respget[8] >> ix) & 1) {
+            sprintf(serbuf, "%c", typ[ix]);
+            printser(serbuf);
+        }
+        else
+            printser("_");
+    printser(" ");
+                
+    for (ix = 0; ix < 8; ix++)
+        if (((respget[8] ^ respget[9]) >> ix) & 1) {
+            sprintf(serbuf, "%c", typ[ix]);
+            printser(serbuf);
+        }
+        else
+            printser("_");
+    printser(" ");
+    const unsigned char inf2[] = "MHUDEC-=";
     //bit 0-7: Mute, TSHold, SysUp, DispOn, Euro, Custom, -, -
-    sprintf(serbuf, " %02x\r\n", respget[10]);
+    for (ix = 0; ix < 8; ix++)
+        if ((respget[10] >> ix) & 1) {
+            sprintf(serbuf, "%c", inf2[ix]);
+            printser(serbuf);
+        }
+        else
+            printser("_");
+    printser_P(PSTR("\r\n"));
 }
 
 /*========================================================================*/
 void hwloop(void) {
     int ret;
-
-      printser_P(PSTR("V1MegaTool\r\n"));
+    unsigned char lastdisp[12];
+        
+    printser_P(PSTR("V1MegaTool\r\n"));
 
     for (;;) {                  // get at least one inf packet
         ret = readpkt(respget);
@@ -980,7 +1015,7 @@ void hwloop(void) {
             break;
     }
     // should give Not Ready message if timeslice holdoff.
-      printser_P(PSTR("A-alerts, I-infoscan, D-DefaultSweep, S-SetSweeps. T-transparent\r\n"));
+    printser_P(PSTR("A-alerts, I-infoscan, D-DefaultSweep, S-SetSweeps. T-transparent, V-ViewDisplay\r\n"));
     while (inhead == intail)
         readpkt(respget);
 
@@ -1007,7 +1042,20 @@ void hwloop(void) {
         while (transp)
             sleep_mode();
         break;
-
+    case 'V':
+    case 'v':
+        printser_P(PSTR("Mute (ESP)Hold systemUp mainDisp Euro Custom\r\n"));
+        lastdisp[0] = 0;
+        while( inhead == intail ) {
+            ret = readpkt(respget);
+            if (ret < 5)
+                continue;
+            if (respget[3] == INFDISPLAYDATA && memcmp( lastdisp, respget, 12 )) {
+                showinfdisp();
+                memcpy( lastdisp, respget, 12 );
+            }
+        }
+        break;
     default:
         break;
     }
