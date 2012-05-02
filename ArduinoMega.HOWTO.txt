@@ -1,3 +1,7 @@
+You will need a modular phone cable, some extra wire, an Arduino Mega,
+and the Arduino development environment you can get from
+http://arduino.cc and some basic tools.
+
 A modular jack inserted into the accessory port on a V1 power
 connection will have the following connections:
 
@@ -21,10 +25,29 @@ you align the end with the colors (you can usually see through the
 plug) as green for ground and red for power, which would make data
 yellow and audio black.
 
+If you want a full passthrough, you can also get a dual line jack from
+Lowes or similar store.  It has to be for two full (4 wire) circuits,
+so have eight screw terminals inside.  Take the wires off one side and
+connect them in the opposite order on the other side, i.e. one will be
+black, red, green, yellow, attach yellow, green, red, and black from
+the far side respectively, and run wires out to the Mega, i.e.
+
+a+-d
+BRGY
+YGRB
+
+Here I would check with a meter to figure out which side is to the
+accessory power and which is to next accessory (I tend to think, which
+one goes toward the V1, which toward the Concealed Display - which
+also has one jack).  Data is going to be next to ground here too.
+
 You will need to connect ground - there is a power header near the
 power plug - you can buy a plug or go to the ground on the power
 header.  You can connect battery to VIN or PWR_IN or the plug - the
 power LED should turn on if you have this right.
+
+Note: If the Arduino is NOT powered, it will pull down the data line
+and disable the ESP function.
 
 The DATA line goes both to pin 49 on the edge opposite the power plug
 and to pin 18/TX1 near the adjacent corner.
