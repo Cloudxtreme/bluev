@@ -64,12 +64,12 @@ information and reconfigure your V1.
 You will need the IDE from arduino.cc to compile and flash the
 program.  It is available for the PC, Mac, and Linux.
 
-The files bluev.ino and bluevmega.c can be copied into a folder named
-"bluev" in the arduino sketchbook folder, and opened as a sketch (that
-is what it calls protrams) and compiled and uploaded by pressing the
-"play" button.  Remember to set the COM port and the board type (it
-should work with any Mega compatible, but older boards use a 1280,
-newer ones use a 2560, so check which one you have.
+The files bluev.ino, bluevirq, and bluevmega.c can be copied into a
+folder named "bluev" in the arduino sketchbook folder, and opened as a
+sketch (that is what it calls protrams) and compiled and uploaded by
+pressing the "play" button.  Remember to set the COM port and the
+board type (it should work with any Mega compatible, but older boards
+use a 1280, newer ones use a 2560, so check which one you have.
 
 You can use the serial monitor and use the top box to send the command
 characters, but a terminal program might be easier.

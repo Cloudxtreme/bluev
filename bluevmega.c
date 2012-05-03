@@ -1,268 +1,17 @@
-#include <avr/io.h>
-#include <avr/interrupt.h>
-#include <avr/sleep.h>
 #include <avr/pgmspace.h>
+#include <avr/sleep.h>
 #include <string.h>
 #include <stdio.h>
 
-//#define F_CPU         18432000
-#ifndef F_CPU
-#define F_CPU  	16000000
-#endif
-#define BAUD 	57600
-
-#define PRESCALE1 8
-#define BITTIME(x)		( ((x) * F_CPU) / PRESCALE1 / BAUD)
-
-//#include <util/delay.h>
-
-/*-------------------------------------------------------------------------*/
-#define INMSGSIZE 24
-static unsigned char inmsgbuf[INMSGSIZE];
-static volatile unsigned char inmsglen, inmsgcks;
-static volatile unsigned char slice = 4;
-static volatile unsigned char transp = 0;
-
-static volatile unsigned char nochecksum = 0;
-#define ANYSLICE
-// Received character from bluetooth
-static volatile unsigned char inmsgstate;
-static void inchar(unsigned char c)
-{
-    switch (inmsgstate) {
-    case 0:                    // SOF
-        if (c == 0xaa) {
-            inmsgcks = 0;
-            inmsglen = 0;
-            inmsgstate++;
-        }
-        break;
-    case 1:                    // destination
-        if ((c & 0xf0) == 0xd0)
-            inmsgstate++;
-        else
-            inmsgstate = 0;
-        break;
-    case 2:                    // source
-        if ((c & 0xf0) == 0xe0
-#ifndef ANYSLICE
-          && (c & 0x0f) <= 5 && (c & 0x0f) >= 3
-#endif
-          )                     // valid source ?
-            inmsgstate++;
-        else
-            inmsgstate = 0;
-        break;
-    case 3:                    // ID through EOF
-        if (inmsglen == 4 && c > 20) {  // validate length
-            inmsgstate = 0;
-            break;
-        }
-        if (inmsglen < 5)       // later tests require length
-            break;
-
-        if (!nochecksum)
-            if (inmsgbuf[4] + 4 == inmsglen) {  // checksum byte
-                if (inmsgcks != c)
-                    inmsgstate = 0;
-                break;
-            }
-        if (c == 0xab && inmsgbuf[4] + 5 == inmsglen) { // EOF - queue for send
-            inmsgbuf[inmsglen] = c;     // avoid race 
-            slice = inmsgbuf[2] & 0x0f;
-            inmsgstate = 4;
-        }
-        break;
-    case 4:                    // waiting for transmit - discard
-        return;
-    default:
-        break;
-    }
-    if (inmsgstate && inmsglen < INMSGSIZE) {
-        inmsgbuf[inmsglen++] = c;
-        inmsgcks += c;
-    }
-    else                        // overflow - shouldn't happen given state machine
-        inmsgstate = 0;
-}
-
-// Save off characters until a valid V1 ESP packet is complete
-ISR(USART2_RX_vect)
-{
-    inchar(UDR2);
-}
-
-static unsigned char inbuf[256], v1buf[256];
-static volatile unsigned char v1head = 0, v1tail = 0, inhead = 0, intail = 0;
-ISR(USART0_RX_vect)
-{
-    if (transp) {
-        inchar(UDR0);
-        return;
-    }
-    inbuf[inhead++] = UDR0;
-}
-
-/*-------------------------------------------------------------------------*/
-static volatile unsigned int bitcnt;
-static unsigned int frametime;
-// Time Slice processor
-// This counts character times to find the slot to transmit.  
-// Each slot is 45 character times wide
-// FIXME - doesn't try to resync or otherwise avoid collisions with other devices
-ISR(TIMER4_COMPB_vect)
-{
-    OCR4B += BITTIME(10);
-    frametime++;
-
-    if (frametime < 45 * slice)
-        return;
-
-    if (inmsgstate != 4) {      // nothing for this frame
-        TIMSK4 &= ~_BV(OCIE4B); // slice processor off
-        UCSR1B &= ~_BV(TXEN0);  // TX off - just in case
-        frametime = 0;
-        return;
-    }
-
-    if (
-#ifdef ANYSLICE
-      (slice == 0 && frametime == 1) ||
-#endif
-      frametime == 45 * slice) {        // At current time slice
-
-        // Holdoff for late previous time slice
-        if (bitcnt)
-            frametime--;
-        else
-            UCSR1B |= _BV(TXEN0);       // TX on
-        return;
-    }
-
-    if (frametime >= 45 * (slice + 1)) {        // end of time slice
-        TIMSK4 &= ~_BV(OCIE4B); // slice processor off
-        UCSR1B &= ~_BV(TXEN0);  // TX off
-        frametime = 0;
-        inmsgstate = 0;
-        return;
-    }
-
-    if (!(frametime & 1)) {     // Data Out Pacing, every other frame until done
-        unsigned char ptr = (frametime - (45 * slice + 1)) >> 1;
-        if (ptr < inmsglen)
-            UDR1 = inmsgbuf[ptr];
-        if (ptr > inmsglen)
-            UCSR1B &= ~_BV(TXEN0);      // TX off
-    }
-}
-
-// This tracks the V1 infDisplayData packet to sync the ESP cycle
-static volatile unsigned char v1state, thislen;
-static unsigned char infDisp[] = "\xaa\xd8\xea\x31\x09";        // put in Flash?
-static void dostate(unsigned char val)
-{
-    // FIXME - hardcoded packet length
-    // on the fly comparison of the first 5 bytes of the infDisplay packet
-    if (v1state < 5) {
-        v1state++;
-        if (v1state == 3) {     // Checksum or not?
-            if (val == 0xea)
-                infDisp[4] = 9, nochecksum = 0;
-            else if (val == 0xe9)
-                infDisp[4] = 8, nochecksum = 1;
-            else
-                v1state = 0;
-            return;
-        }
-        if (val == infDisp[v1state - 1])
-            thislen = v1state;
-        else
-            v1state = 0;
-        return;
-    }
-    thislen++;
-    if (thislen == 11 && (val & 2)) {   // V1 TimeSlice holdoff
-        v1state = 0;
-        return;
-    }
-#if 0
-    // FIXME? maybe validate checksum?
-    if (thislen == 14 && val != ckcksum(inbuf, 14))
-        return 0;
-#endif
-    if (val == 0xab && thislen == 6 + infDisp[4]) {     // EOF - start time slice sync
-        frametime = 0;
-        v1state = 0;
-        OCR4B = OCR4A + BITTIME(10) + BITTIME(1) / 2;
-        TIFR4 |= _BV(OCF4B);    /* clear compare match interrupt */
-        TIMSK4 |= _BV(OCIE4B);  /* enable compare match interrupt */
-        return;
-    }
-    if (thislen > 6 + infDisp[4])       // too long
-        v1state = 0;
-}
-
-static unsigned char outchar;   // bitbang UART receive register
-static unsigned char polarity;  // which edge are we looking for
-//Stopbit for software UART
-ISR(TIMER4_COMPA_vect)
-{
-    TIMSK4 &= ~_BV(OCIE4A);     // disable
-    if (!polarity) {            // not break condition
-        while (bitcnt < 10) {   // fill in one bits up to stop bit
-            bitcnt++;
-            outchar >>= 1;
-            outchar |= 0x80;
-        }
-        UDR2 = outchar;
-        // UDR0=64|63&outchar;
-        if (transp)
-            UDR0 = outchar;
-        else
-            v1buf[v1head++] = outchar;
-        dostate(outchar);
-    }
-    else {                      // break, reset things for next start bit
-        TCCR4B &= ~_BV(ICES1);
-        polarity = 0;
-    }
-    bitcnt = 0;
-}
-
-// Software UART via edges
-ISR(TIMER4_CAPT_vect)
-{
-    static unsigned lastedge;
-    TCCR4B ^= _BV(ICES1);
-    /* toggle interrupt on rising/falling edge */
-    if (!polarity && !bitcnt) { // start bit
-        lastedge = ICR4;
-        OCR4A = lastedge + BITTIME(9) + BITTIME(1) / 2;
-        TIFR4 |= _BV(OCF4A);    /* clear compare match interrupt */
-        TIMSK4 |= _BV(OCIE4A);  /* enable compare match interrupt */
-        polarity = 1;
-        bitcnt = 1;
-        return;
-    }
-    unsigned thisedge = ICR4;
-    unsigned width = thisedge - lastedge;
-    lastedge = thisedge;
-    width += BITTIME(1) / 2;    // round up
-    while (width >= BITTIME(1)) {       // Shift in bits based on width
-        width -= BITTIME(1);
-        bitcnt++;
-        outchar >>= 1;
-        if (!polarity)
-            outchar |= 0x80;
-    }
-    polarity ^= 1;
-}
-
 /*========================================================================*/
 // V1 Command, Response, and Info packet Processing
-
 /*========================================================================*/
-
+static unsigned char cmdslice = 4;
+extern volatile unsigned char v1head, v1tail, inhead, intail;
+extern unsigned char v1buf[], inbuf[];
+extern unsigned char inmsgbuf[];
+extern volatile unsigned char inmsglen, inmsgstate;
+extern volatile unsigned char transp;
 // LOW LEVEL ROUTINES FOR ARDUINO
 
 // Read one character from the V1 data stream
@@ -300,7 +49,7 @@ static void printser_P(const char *p)
 
 #define REQUSERBYTES (0x11)
 #define RESPUSERBYTES (0x12)
-#define REQWRITEUSERBYTES (0x11)
+#define REQWRITEUSERBYTES (0x13)
 #define REQFACTORYDEFAULT (0x14)
 
 #define REQWRITESWEEPDEFINITIONS (0x15)
@@ -475,7 +224,7 @@ static int sendcmd(unsigned char *thiscmd, unsigned char resp, unsigned char *bu
     unsigned char ix;
     int ret;
 
-    memcpy(inmsgbuf, thiscmd, thiscmd[4] + 6);
+    memcpy(inmsgbuf, thiscmd, thiscmd[4] + 6); // This queues the message for transmission
     inmsglen = thiscmd[4] + 6;
     inmsgstate = 4;
 
@@ -547,7 +296,7 @@ static unsigned int maxswp = 5;
 static void syncresp() {
     int iy;
     // send one request version to clear out the incoming packet respgetfer
-    makecmd(cmdsend, slice, 0xa, REQVERSION, 0, NULL);
+    makecmd(cmdsend, cmdslice, 0xa, REQVERSION, 0, NULL);
     sendcmd(cmdsend, NORESPONSE, respget);
     for (;;) {
         iy = readpkt(respget);
@@ -562,7 +311,7 @@ static void syncresp() {
 static void sweep1() {
     int ix, ret;
     // Sweep Sections and Definitions
-    makecmd(cmdsend, slice, 0xa, REQSWEEPSECTIONS, 0, NULL);
+    makecmd(cmdsend, cmdslice, 0xa, REQSWEEPSECTIONS, 0, NULL);
     sendcmd(cmdsend, RESPSWEEPSECTIONS, respget);
     printser_P(PSTR("SweepSections:\r\n"));
     sprintf(serbuf, "+%d/%d %5u - %5u\r\n", respget[5] >> 4, respget[5] & 15, respget[8] << 8 | respget[9],
@@ -603,7 +352,7 @@ static void sweep1() {
         }
     }
     // sweep definitions must stay within the sections above
-    makecmd(cmdsend, slice, 0xa, REQMAXSWEEPINDEX, 0, NULL);
+    makecmd(cmdsend, cmdslice, 0xa, REQMAXSWEEPINDEX, 0, NULL);
     sendcmd(cmdsend, RESPMAXSWEEPINDEX, respget);
     sprintf(serbuf, "MaxSweepIndex: %d (+1 for number of definitions)\r\n", respget[5]);
     printser(serbuf);
@@ -614,7 +363,7 @@ static void sweep1() {
 static void sweep2() {
     int ix, ret;
     // read sweep sections
-    makecmd(cmdsend, slice, 0xa, REQALLSWEEPDEFINITIONS, 0, NULL);
+    makecmd(cmdsend, cmdslice, 0xa, REQALLSWEEPDEFINITIONS, 0, NULL);
     sendcmd(cmdsend, RESPSWEEPDEFINITION, respget);
         printser_P(PSTR("SweepDefinitions:\r\n"));
     sprintf(serbuf, "+%d/%d Low:%5u High:%5u\r\n", 1 + (respget[5] & 63), 1 + maxswp, respget[8] << 8 | respget[9],
@@ -728,7 +477,7 @@ static void sweepset() {
         wrsbuf[2] = high[iy];
         wrsbuf[3] = low[iy] >> 8;
         wrsbuf[4] = low[iy];
-        makecmd(cmdsend, slice, 0xa, REQWRITESWEEPDEFINITIONS, 5, wrsbuf);
+        makecmd(cmdsend, cmdslice, 0xa, REQWRITESWEEPDEFINITIONS, 5, wrsbuf);
         sendcmd(cmdsend, NORESPONSE, respget);
         sprintf(serbuf, "Wrote %2d: %5u - %5u\r\n", iy + 1, low[iy], high[iy]);
         printser(serbuf);
@@ -753,18 +502,15 @@ static void sweepset() {
 // set default sweeps
 static void defaultsweeps() {
     syncresp();
-    makecmd(cmdsend, slice, 0xa, REQDEFAULTSWEEPS, 0, NULL);
+    makecmd(cmdsend, cmdslice, 0xa, REQDEFAULTSWEEPS, 0, NULL);
     sendcmd(cmdsend, NORESPONSE, respget);
     printser_P(PSTR("Default Sweeps Done, Please use infoscan to confirm\r\n"));
 }
 
+static char userset[] = "12345678AbCdEFGHJuUtL   ";
 // show user bytes
-static void usershow() {
+static void userprint() {
     int ix;
-    // User settings
-    makecmd(cmdsend, slice, 0xa, REQUSERBYTES, 0, NULL);
-    sendcmd(cmdsend, RESPUSERBYTES, respget);
-    char userset[] = "12345678AbCdEFGHJuUtL   ";
     printser_P(PSTR("UserSet: (default) "));
     for (ix = 0; ix < 8; ix++) {
         sprintf(serbuf, "%c", (respget[5] >> ix) & 1 ? userset[ix] : '_');
@@ -794,6 +540,13 @@ static void usershow() {
     printser_P(PSTR("\r\n"));
 }
 
+static void usershow() {
+    // User settings
+    makecmd(cmdsend, cmdslice, 0xa, REQUSERBYTES, 0, NULL);
+    sendcmd(cmdsend, RESPUSERBYTES, respget);
+    userprint();
+}
+
 // Scan for everything I could find in the spec for all devices
 static void infoscan() {
     int ix;
@@ -803,7 +556,7 @@ static void infoscan() {
     syncresp();
 
     // do commands
-    makecmd(cmdsend, slice, 0xa, REQVERSION, 0, NULL);
+    makecmd(cmdsend, cmdslice, 0xa, REQVERSION, 0, NULL);
     sendcmd(cmdsend, RESPVERSION, respget);
     printser_P(PSTR("V1 Version: "));
 
@@ -813,7 +566,7 @@ static void infoscan() {
     }
     printser_P(PSTR("\r\n"));
 
-    makecmd(cmdsend, slice, 0xa, REQSERIALNUMBER, 0, NULL);
+    makecmd(cmdsend, cmdslice, 0xa, REQSERIALNUMBER, 0, NULL);
     sendcmd(cmdsend, RESPSERIALNUMBER, respget);
     printser_P(PSTR("V1 SerialNo: "));
     for (ix = 0; ix < respget[4] - 1; ix++) {
@@ -822,7 +575,7 @@ static void infoscan() {
     }
     printser_P(PSTR("\r\n"));
 
-    makecmd(cmdsend, slice, 0xa, REQBATTERYVOLTAGE, 0, NULL);
+    makecmd(cmdsend, cmdslice, 0xa, REQBATTERYVOLTAGE, 0, NULL);
     sendcmd(cmdsend, RESPBATTERYVOLTAGE, respget);
     sprintf(serbuf, "BattVolt: %d.%02d\r\n", respget[5], respget[6]);
     printser(serbuf);
@@ -833,7 +586,7 @@ static void infoscan() {
     sweep2();
 
     // Concealed Display
-    makecmd(cmdsend, slice, 0, REQVERSION, 0, NULL);
+    makecmd(cmdsend, cmdslice, 0, REQVERSION, 0, NULL);
     sendcmd(cmdsend, RESPVERSION, respget);
     printser_P(PSTR("CD Version: "));
     for (ix = 0; ix < respget[4] - 1; ix++) {
@@ -843,7 +596,7 @@ static void infoscan() {
     printser_P(PSTR("\r\n"));
 
     // Remote Audio
-    makecmd(cmdsend, slice, 1, REQVERSION, 0, NULL);
+    makecmd(cmdsend, cmdslice, 1, REQVERSION, 0, NULL);
     sendcmd(cmdsend, RESPVERSION, respget);
     printser_P(PSTR("RA Version: "));
     for (ix = 0; ix < respget[4] - 1; ix++) {
@@ -853,7 +606,7 @@ static void infoscan() {
     printser_P(PSTR("\r\n"));
 
     // Savvy
-    makecmd(cmdsend, slice, 2, REQVERSION, 0, NULL);
+    makecmd(cmdsend, cmdslice, 2, REQVERSION, 0, NULL);
     sendcmd(cmdsend, RESPVERSION, respget);
     printser_P(PSTR("SV Version: "));
     for (ix = 0; ix < respget[4] - 1; ix++) {
@@ -862,7 +615,7 @@ static void infoscan() {
     }
     printser_P(PSTR("\r\n"));
 
-    makecmd(cmdsend, slice, 2, REQSERIALNUMBER, 0, NULL);
+    makecmd(cmdsend, cmdslice, 2, REQSERIALNUMBER, 0, NULL);
     sendcmd(cmdsend, RESPSERIALNUMBER, respget);
     printser_P(PSTR("SV SerialNo: "));
     for (ix = 0; ix < respget[4] - 1; ix++) {
@@ -871,11 +624,11 @@ static void infoscan() {
     }
     printser_P(PSTR("\r\n"));
 
-    makecmd(cmdsend, slice, 2, REQSAVVYSTATUS, 0, NULL);
+    makecmd(cmdsend, cmdslice, 2, REQSAVVYSTATUS, 0, NULL);
     sendcmd(cmdsend, RESPSAVVYSTATUS, respget);
     sprintf(serbuf, "SavvyStat: ThreshKPH:%d (unmu ena: throvrd):%d\r\n", respget[5], respget[6]);
     printser(serbuf);
-    makecmd(cmdsend, slice, 2, REQVEHICLESPEED, 0, NULL);
+    makecmd(cmdsend, cmdslice, 2, REQVEHICLESPEED, 0, NULL);
     sendcmd(cmdsend, RESPVEHICLESPEED, respget);
     sprintf(serbuf, "SavvyVehSpd: %d kph\r\n", respget[5]);
     printser(serbuf);
@@ -888,7 +641,7 @@ static void alerts() {
     int ix;
     syncresp();
     printser_P(PSTR("=====ALERTS=====\r\n"));
-    makecmd(cmdsend, slice, 0xa, REQSTARTALERTDATA, 0, NULL);
+    makecmd(cmdsend, cmdslice, 0xa, REQSTARTALERTDATA, 0, NULL);
     sendcmd(cmdsend, NORESPONSE, respget);
     for (;;) {
         if (inhead != intail) {
@@ -915,7 +668,7 @@ static void alerts() {
             printser_P(PSTR("\r\n"));
         }
     }
-    makecmd(cmdsend, slice, 0xa, REQSTOPALERTDATA, 0, NULL);
+    makecmd(cmdsend, cmdslice, 0xa, REQSTOPALERTDATA, 0, NULL);
     sendcmd(cmdsend, NORESPONSE, respget);
     printser_P(PSTR("=====END ALERTS=====\r\n"));
 }
@@ -976,33 +729,56 @@ static void showinfdisp() {
 // 1=AllBogeys, 2=Logic, 3=AdvancedLogic
 static void setmode(unsigned char mode) {
     syncresp();
-    makecmd(cmdsend, slice, 0xa, REQCHANGEMODE, 1, &mode);
+    makecmd(cmdsend, cmdslice, 0xa, REQCHANGEMODE, 1, &mode);
     sendcmd(cmdsend, NORESPONSE, respget);
 }
 
 // no param command without response
-static void quickcommand(cmd) {
+static void quickcommand(unsigned char cmd) {
     syncresp();
-    makecmd(cmdsend, slice, 0xa, cmd, 0, NULL);
+    makecmd(cmdsend, cmdslice, 0xa, cmd, 0, NULL);
     sendcmd(cmdsend, NORESPONSE, respget);
 }
 
 // prototype - need to add set/reset dialog and edit the buffer
 static void userbytes() {
     syncresp();
-    printser_P(PSTR("Old\r\n"));
+    printser_P(PSTR("Current:\r\n"));
     usershow();
+    printser_P(PSTR("Use one of the above letters/numbers to change,\r\n"
+                    " or Q to quit, W to write changes to the V1\r\n"));
+    unsigned char ub[6];
+    memcpy( ub,respget+5,6);
+    for(;;) {
+        while (inhead == intail)
+            readpkt(respget);
+        char c = inbuf[intail++];
+        if( c <= ' ' )
+            continue;
+        if( c == 'Q' || c == 'q' )
+            return;            
+        if( c == 'w' || c == 'w' )
+            break;            
+        int ix;
+        for( ix=0; ix < 24; ix++ )
+            if( userset[ix] == c )
+                break;
+        if( ix < 24 )
+            ub[ix >> 3] ^= 1 << (ix & 7);
+        memcpy( respget+5,ub,6 );
+        userprint();
+    }
+    memcpy( respget+5,ub,6 );
+    userprint();
+
     printser_P(PSTR("Updating\r\n"));
-
-    // INCOMPLETE
-    // Edit userbytes at respget[5-7]
-
-    makecmd(cmdsend, slice, 0xa, REQWRITEUSERBYTES, 6, &respget[5]);
+    makecmd(cmdsend, cmdslice, 0xa, REQWRITEUSERBYTES, 6, ub);
     sendcmd(cmdsend, NORESPONSE, respget);
-    printser_P(PSTR("New\r\n"));
+    printser_P(PSTR("New:\r\n"));
     usershow();
 }
 
+extern void hwsetup(void);
 /*========================================================================*/
 #ifdef STANDALONE
 int main()
@@ -1010,35 +786,8 @@ int main()
 void init()
 #endif
 {
-    cli();
-    v1state = inmsgstate = inmsglen = polarity = bitcnt = 0;
 
-    // UART init
-#include <util/setbaud.h>
-    UBRR2H = UBRR1H = UBRR0H = UBRRH_VALUE;
-    UBRR2L = UBRR1L = UBRR0L = UBRRL_VALUE;
-#if USE_2X
-    UCSR2A = UCSR1A = UCSR0A = _BV(U2X1);
-#endif
-    UCSR2C = UCSR1C = UCSR0C = _BV(UCSZ10) | _BV(UCSZ11);       // 8N1
-    UCSR2B = UCSR0B = _BV(TXEN0) | _BV(RXEN0) | _BV(RXCIE0);    // Enable TX and RX
-    // for UART1, only TX is enabled, and only when sending in the right timeslice
-
-    // Timer init
-    GTCCR = 0;                  //_BV(PSR10);         /* reset prescaler */
-
-    // trigger on falling edge (default), noise cancel
-    // lower 3 bits is div, off,1,8,64,256,1024,extfall,extris ; CS12,11,10
-    TCCR4B = _BV(ICNC1) | _BV(CS11);
-
-    // clear and enable Input Capture interrupt 
-    TIFR4 |= _BV(ICF4) | _BV(TOV4) | _BV(OCF4A) | _BV(OCF4B);
-    TIMSK4 = _BV(ICIE4);        // enable input capture only
-
-    sei();                      // enable interrupts
-    // and sleep between events
-    set_sleep_mode(SLEEP_MODE_IDLE);
-
+    hwsetup();
 
     int ret;
     unsigned char lastdisp[12];
@@ -1052,26 +801,45 @@ void init()
             if (respget[3] == INFDISPLAYDATA)
                 break;
         }
-        // should give Not Ready message if timeslice holdoff.
-        printser_P(PSTR("A-alerts, I-infoscan, D-DefaultSweep, S-SetSweeps. T-transparent, V-ViewDisplay\r\n"));
+        // should give Not Ready message if timecmdslice holdoff.
+        printser_P(PSTR("A-alerts, I-infoscan, D-DefaultSweep, S-SetSweeps. T-transparent, U-userbytes V-ViewDisplay\r\n"));
+        printser_P(PSTR("#-FactDefault 1-DispOff 2-DispOn 3-MuteOn 4-Muteoff 5-AllBogeys 6-Logic 7-Advanced-Logic\r\n"));
         while (inhead == intail)
             readpkt(respget);
     
         switch (inbuf[intail++]) {
-/*
-quickcommand(REQFACTORYDEFAULT);
-quickcommand(REQTURNOFFMAINDISPLAY);
-quickcommand(REQTURNONMAINDISPLAY);
-quickcommand(REQMUTEON);
-quickcommand(REQMUTEOFF);
-setmode(1); // all bogeys
-setmode(2); // logic
-setmode(3); // advanced logic
-*/
 
+        case '#':
+            quickcommand(REQFACTORYDEFAULT);
+            break;
+        case '1':
+            quickcommand(REQTURNOFFMAINDISPLAY);
+            break;
+        case '2':
+            quickcommand(REQTURNONMAINDISPLAY);
+            break;
+        case '3':
+            quickcommand(REQMUTEON);
+            break;
+        case '4':
+            quickcommand(REQMUTEOFF);
+            break;
+        case '5':
+            setmode(1); // all bogeys
+            break;
+        case '6':
+            setmode(2); // logic
+            break;
+        case '7':
+            setmode(3); // advanced logic
+            break;
         case 'A':
         case 'a':
             alerts();
+            break;
+        case 'U':
+        case 'u':
+            userbytes();
             break;
         case 'I':
         case 'i':
