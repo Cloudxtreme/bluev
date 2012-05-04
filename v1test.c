@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <sys/ioctl.h>
 
 #define REQVERSION (1)
 #define RESPVERSION (2)
@@ -86,11 +87,15 @@ static char *pullp(const char *p)
 static int readpkt(unsigned char *);
 static unsigned char respget[];
 static int getkey() {
-    return getchar();
+    char c;
+    read( 0, &c, 1 );
+    return c;
 }
 
 static int keypress() {
-    return 0;//getchar();
+    int v;
+    ioctl( 0, FIONREAD, &v );
+    return v > 1;//getchar();
 }
 
 
