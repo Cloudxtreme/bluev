@@ -3,6 +3,7 @@
 #include <string.h>
 #include <unistd.h>
 
+
 #define REQVERSION (1)
 #define RESPVERSION (2)
 #define REQSERIALNUMBER (3)
@@ -10,7 +11,7 @@
 
 #define REQUSERBYTES (0x11)
 #define RESPUSERBYTES (0x12)
-#define REQWRITEUSERBYTES (0x11)
+#define REQWRITEUSERBYTES (0x13)
 #define REQFACTORYDEFAULT (0x14)
 
 #define REQWRITESWEEPDEFINITIONS (0x15)
@@ -48,7 +49,7 @@
 #define REQVEHICLESPEED (0x73)
 #define RESPVEHICLESPEED (0x74)
 #define REQOVERRIDETHUMBWHEEL (0x75)
-#define REQSETSAVVYMUTEENABLE (0x76)
+#define REQSETSAVVYUNMUTEENABLE (0x76)
 
 #define NORESPONSE (0xfe)
 
