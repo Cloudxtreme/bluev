@@ -32,14 +32,10 @@ static void printser(char *str)
     }
 }
 
-// print string from progmem
-static void printser_P(const char *p)
-{
-    char c;
-    while ((c = pgm_read_byte(p++))) {
-        while (!(UCSR0A & _BV(UDRE0)));
-        UDR0 = c;
-    }
+static char localstr[128];
+static char *pullp(const char *p) {
+    strcpy_P( localstr, p );
+    return localstr;
 }
 
 #define REQVERSION (1)
@@ -87,7 +83,7 @@ static void printser_P(const char *p)
 #define REQVEHICLESPEED (0x73)
 #define RESPVEHICLESPEED (0x74)
 #define REQOVERRIDETHUMBWHEEL (0x75)
-#define REQSETSAVVYMUTEENABLE (0x76)
+#define REQSETSAVVYUNMUTEENABLE (0x76)
 
 #define NORESPONSE (0xfe)
 
@@ -144,7 +140,7 @@ static int readpkt(unsigned char *buf)
         while (buf[0] != 0xaa)  // SOF
         {
             buf[0] = readv1rx();
-            //sprintf( serbuf, "%02x", buf[0] );
+            //sprintf( serbuf, pullp(PSTR("%02x")), buf[0] );
             //printser( serbuf );
         }
         buf[1] = readv1rx();
@@ -182,7 +178,7 @@ static int readpkt(unsigned char *buf)
             memcpy(v1infdisplaydata, buf + 5, 8);
         }
         else if (buf[3] == RESPALERTDATA) {
-            //sprintf(serbuf, "a: %d\n", buf[1] & 0xf);
+            //sprintf( serbuf, pullp(PSTR("a: %d\n")), buf[1] & 0xf);
             //printser(serbuf);
             // copy to temp until index == total, then move to out and inc
             if (!buf[5]) {      // no alerts
@@ -205,13 +201,13 @@ static int readpkt(unsigned char *buf)
         else {
 #if 0
             // show nonstream traffic
-            sprintf(serbuf, "r: %d:", len);
+            sprintf( serbuf, pullp(PSTR("r: %d:")), len);
             printser(serbuf);
             for (ix = 1; ix < len - 1; ix++) {
-                sprintf(serbuf, " %02x", buf[ix]);
+                sprintf( serbuf, pullp(PSTR(" %02x")), buf[ix]);
                 printser(serbuf);
             }
-            printser_P(PSTR("\r\n"));
+            printser(pullp(PSTR("\r\n")));
 #endif
         }
         return len;
@@ -232,7 +228,7 @@ static int sendcmd(unsigned char *thiscmd, unsigned char resp, unsigned char *bu
 #define ECHOTIME 8
     for (ix = 0; ix < ECHOTIME; ix++) { // look for command on bus
         ret = readpkt(buf);
-        //      sprintf( serbuf, "%d: %02x %02x %02x %02x %02x %02x %02x\r\n", ret, buf[0], buf[1], buf[2], buf[3], buf[4], buf[5], buf[6] );
+        //      sprintf( serbuf, pullp(PSTR("%d: %02x %02x %02x %02x %02x %02x %02x\r\n")), ret, buf[0], buf[1], buf[2], buf[3], buf[4], buf[5], buf[6] );
         if (ret < thiscmd[4] + 6)
             continue;
         if (!memcmp(thiscmd, buf, ret))
@@ -253,28 +249,27 @@ static int sendcmd(unsigned char *thiscmd, unsigned char resp, unsigned char *bu
             continue;
         switch (buf[3]) {
         case RESPUNSUPPORTEDPACKET:
-            sprintf(serbuf, "Unsupported Packet\r\n");
-            printser(serbuf);
+            printser(pullp(PSTR("Unsupported Packet\r\n")));
             break;
         case RESPREQUESTNOTPROCESSED:
-            sprintf(serbuf, "Request Not Processed %02x\r\n", buf[5]);
+            sprintf( serbuf, pullp(PSTR("Request Not Processed %02x\r\n")), buf[5]);
             printser(serbuf);
             // maybe abort, return -3?
             break;
         case INFV1BUSY:
             // FIXME, we don't check packet ID
 #if 0
-            printser_P(PSTR("V1Busy:"));
+            printser(pullp(PSTR("V1Busy:")));
             for (ix = 0; ix < buf[4] - 1; ix++) {
-                sprintf(serbuf, " %02x", buf[5 + ix]);
+                sprintf( serbuf, pullp(PSTR(" %02x")), buf[5 + ix]);
                 printser(serbuf);
             }
-            printser(serbuf, "\r\n"));
+            printser(serbuf, "\r\n")));
 #endif
             ix = 0;             // reset timer
             break;
         case RESPDATAERROR:
-            sprintf(serbuf, "Data Error %02x\r\n", buf[5]);
+            sprintf( serbuf, pullp(PSTR("Data Error %02x\r\n")), buf[5]);
             printser(serbuf);
             break;
         }
@@ -313,17 +308,17 @@ static void sweep1() {
     // Sweep Sections and Definitions
     makecmd(cmdsend, cmdslice, 0xa, REQSWEEPSECTIONS, 0, NULL);
     sendcmd(cmdsend, RESPSWEEPSECTIONS, respget);
-    printser_P(PSTR("SweepSections:\r\n"));
-    sprintf(serbuf, "+%d/%d %5u - %5u\r\n", respget[5] >> 4, respget[5] & 15, respget[8] << 8 | respget[9],
+    printser(pullp(PSTR("SweepSections:\r\n")));
+    sprintf( serbuf, pullp(PSTR("+%d/%d %5u - %5u\r\n")), respget[5] >> 4, respget[5] & 15, respget[8] << 8 | respget[9],
       respget[6] << 8 | respget[7]);
     printser(serbuf);
     if (respget[4] > 6) {
-        sprintf(serbuf, "+%d/%d %5u -:%5u\r\n", respget[10] >> 4, respget[10] & 15, respget[13] << 8 | respget[14],
+        sprintf( serbuf, pullp(PSTR("+%d/%d %5u -:%5u\r\n")), respget[10] >> 4, respget[10] & 15, respget[13] << 8 | respget[14],
           respget[11] << 8 | respget[12]);
         printser(serbuf);
     }
     if (respget[4] > 11) {
-        sprintf(serbuf, "+%d/%d %5u - %5u\r\n", respget[15] >> 4, respget[15] & 15, respget[18] << 8 | respget[19],
+        sprintf( serbuf, pullp(PSTR("+%d/%d %5u - %5u\r\n")), respget[15] >> 4, respget[15] & 15, respget[18] << 8 | respget[19],
           respget[16] << 8 | respget[17]);
         printser(serbuf);
     }
@@ -336,17 +331,17 @@ static void sweep1() {
         if (respget[3] != 0x23)
             continue;
         ix++;
-        sprintf(serbuf, "+%d/%d %5u - %5u\r\n", respget[5] >> 4, respget[5] & 15, respget[8] << 8 | respget[9],
+        sprintf( serbuf, pullp(PSTR("+%d/%d %5u - %5u\r\n")), respget[5] >> 4, respget[5] & 15, respget[8] << 8 | respget[9],
           respget[6] << 8 | respget[7]);
         printser(serbuf);
 
         if (respget[4] > 6) {
-            sprintf(serbuf, "+%d/%d %5u -:%5u\r\n", respget[10] >> 4, respget[10] & 15, respget[13] << 8 | respget[14],
+            sprintf( serbuf, pullp(PSTR("+%d/%d %5u -:%5u\r\n")), respget[10] >> 4, respget[10] & 15, respget[13] << 8 | respget[14],
               respget[11] << 8 | respget[12]);
             printser(serbuf);
         }
         if (respget[4] > 11) {
-            sprintf(serbuf, "+%d/%d %5u - %5u\r\n", respget[15] >> 4, respget[15] & 15, respget[18] << 8 | respget[19],
+            sprintf( serbuf, pullp(PSTR("+%d/%d %5u - %5u\r\n")), respget[15] >> 4, respget[15] & 15, respget[18] << 8 | respget[19],
               respget[16] << 8 | respget[17]);
             printser(serbuf);
         }
@@ -354,7 +349,7 @@ static void sweep1() {
     // sweep definitions must stay within the sections above
     makecmd(cmdsend, cmdslice, 0xa, REQMAXSWEEPINDEX, 0, NULL);
     sendcmd(cmdsend, RESPMAXSWEEPINDEX, respget);
-    sprintf(serbuf, "MaxSweepIndex: %d (+1 for number of definitions)\r\n", respget[5]);
+    sprintf( serbuf, pullp(PSTR("MaxSweepIndex: %d (+1 for number of definitions)\r\n")), respget[5]);
     printser(serbuf);
     maxswp = respget[5];
 }
@@ -365,8 +360,8 @@ static void sweep2() {
     // read sweep sections
     makecmd(cmdsend, cmdslice, 0xa, REQALLSWEEPDEFINITIONS, 0, NULL);
     sendcmd(cmdsend, RESPSWEEPDEFINITION, respget);
-        printser_P(PSTR("SweepDefinitions:\r\n"));
-    sprintf(serbuf, "+%d/%d Low:%5u High:%5u\r\n", 1 + (respget[5] & 63), 1 + maxswp, respget[8] << 8 | respget[9],
+        printser(pullp(PSTR("SweepDefinitions:\r\n")));
+    sprintf( serbuf, pullp(PSTR("+%d/%d Low:%5u High:%5u\r\n")), 1 + (respget[5] & 63), 1 + maxswp, respget[8] << 8 | respget[9],
       respget[6] << 8 | respget[7]);
     printser(serbuf);
     for (ix = 0; ix < maxswp;) {
@@ -376,7 +371,7 @@ static void sweep2() {
         if (respget[3] != 0x17)
             continue;
         ix++;
-        sprintf(serbuf, "+%d/%d Low:%5u High:%5u\r\n", 1 + (respget[5] & 63), 1 + maxswp, respget[8] << 8 | respget[9],
+        sprintf( serbuf, pullp(PSTR("+%d/%d Low:%5u High:%5u\r\n")), 1 + (respget[5] & 63), 1 + maxswp, respget[8] << 8 | respget[9],
           respget[6] << 8 | respget[7]);
         printser(serbuf);
     }
@@ -411,13 +406,13 @@ static unsigned getword() {
         case 127:
         case 8:
             ret /= 10;
-            printser_P(PSTR("\b \b"));
+            printser(pullp(PSTR("\b \b")));
             break;
         case '\r':
             return ret;
         case 0x15:
             ret = 0;
-            printser_P(PSTR("\r            \r"));
+            printser(pullp(PSTR("\r            \r")));
             break;
         case 0x1b:
             return 0;
@@ -436,18 +431,18 @@ static void sweepset() {
 
     sweep1();
     sweep2();
-    printser_P(PSTR("Enter Definition Ranges, low and high, 0 to end\r\n"));
+    printser(pullp(PSTR("Enter Definition Ranges, low and high, 0 to end\r\n")));
     for (ix = 0; ix <= maxswp; ix++) {
-        sprintf(serbuf, "Def %d Low:\r\n", ix + 1);
+        sprintf( serbuf, pullp(PSTR("Def %d Low:\r\n")), ix + 1);
         printser(serbuf);
         low[ix] = getword();
-        printser_P(PSTR("\r\n"));
+        printser(pullp(PSTR("\r\n")));
         if (low[ix] == 0)
             break;
-        sprintf(serbuf, "Def %d High:\r\n", ix + 1);
+        sprintf( serbuf, pullp(PSTR("Def %d High:\r\n")), ix + 1);
         printser(serbuf);
         high[ix] = getword();
-        printser_P(PSTR("\r\n"));
+        printser(pullp(PSTR("\r\n")));
         if (high[ix] == 0)
             break;
     }
@@ -456,10 +451,10 @@ static void sweepset() {
         return;
 
     for (iy = 0; iy < ix; iy++) {
-        sprintf(serbuf, "%2d: %5u - %5u\r\n", iy + 1, low[iy], high[iy]);
+        sprintf( serbuf, pullp(PSTR("%2d: %5u - %5u\r\n")), iy + 1, low[iy], high[iy]);
         printser(serbuf);
     }
-    printser_P(PSTR("Write to V1? (Y/N):"));
+    printser(pullp(PSTR("Write to V1? (Y/N):")));
     while (inhead == intail)
         readpkt(respget);
     if (inbuf[intail] != 'Y' && inbuf[intail] != 'y') {
@@ -479,7 +474,7 @@ static void sweepset() {
         wrsbuf[4] = low[iy];
         makecmd(cmdsend, cmdslice, 0xa, REQWRITESWEEPDEFINITIONS, 5, wrsbuf);
         sendcmd(cmdsend, NORESPONSE, respget);
-        sprintf(serbuf, "Wrote %2d: %5u - %5u\r\n", iy + 1, low[iy], high[iy]);
+        sprintf( serbuf, pullp(PSTR("Wrote %2d: %5u - %5u\r\n")), iy + 1, low[iy], high[iy]);
         printser(serbuf);
     }
     // get write response and decode errors.
@@ -491,11 +486,11 @@ static void sweepset() {
             break;
     }
     if (respget[5]) {
-        sprintf(serbuf, "Write Error in index %d\r\n", respget[5] - 1);
+        sprintf( serbuf, pullp(PSTR("Write Error in index %d\r\n")), respget[5] - 1);
         printser(serbuf);
     }
     else
-        printser_P(PSTR("Write Successfup\r\n"));
+        printser(pullp(PSTR("Write Successfup\r\n")));
     sweep2();
 }
 
@@ -504,40 +499,40 @@ static void defaultsweeps() {
     syncresp();
     makecmd(cmdsend, cmdslice, 0xa, REQDEFAULTSWEEPS, 0, NULL);
     sendcmd(cmdsend, NORESPONSE, respget);
-    printser_P(PSTR("Default Sweeps Done, Please use infoscan to confirm\r\n"));
+    printser(pullp(PSTR("Default Sweeps Done, Please use infoscan to confirm\r\n")));
 }
 
 static char userset[] = "12345678AbCdEFGHJuUtL   ";
 // show user bytes
 static void userprint() {
     int ix;
-    printser_P(PSTR("UserSet: (default) "));
+    printser(pullp(PSTR("UserSet: (default) ")));
     for (ix = 0; ix < 8; ix++) {
-        sprintf(serbuf, "%c", (respget[5] >> ix) & 1 ? userset[ix] : '_');
+        sprintf( serbuf, pullp(PSTR("%c")), (respget[5] >> ix) & 1 ? userset[ix] : '_');
         printser(serbuf);
     }
     for (ix = 0; ix < 8; ix++) {
-        sprintf(serbuf, "%c", (respget[6] >> ix) & 1 ? userset[ix + 8] : '_');
+        sprintf( serbuf, pullp(PSTR("%c")), (respget[6] >> ix) & 1 ? userset[ix + 8] : '_');
         printser(serbuf);
     }
     for (ix = 0; ix < 8; ix++) {
-        sprintf(serbuf, "%c", (respget[7] >> ix) & 1 ? userset[ix + 16] : '_');
+        sprintf( serbuf, pullp(PSTR("%c")), (respget[7] >> ix) & 1 ? userset[ix + 16] : '_');
         printser(serbuf);
     }
-    printser_P(PSTR("\r\nUserSet: (changed) "));
+    printser(pullp(PSTR("\r\nUserSet: (changed) ")));
     for (ix = 0; ix < 8; ix++) {
-        sprintf(serbuf, "%c", (respget[5] >> ix) & 1 ? '_' : userset[ix]);
-        printser(serbuf);
-    }
-    for (ix = 0; ix < 8; ix++) {
-        sprintf(serbuf, "%c", (respget[6] >> ix) & 1 ? '_' : userset[ix + 8]);
+        sprintf( serbuf, pullp(PSTR("%c")), (respget[5] >> ix) & 1 ? '_' : userset[ix]);
         printser(serbuf);
     }
     for (ix = 0; ix < 8; ix++) {
-        sprintf(serbuf, "%c", (respget[7] >> ix) & 1 ? '_' : userset[ix + 16]);
+        sprintf( serbuf, pullp(PSTR("%c")), (respget[6] >> ix) & 1 ? '_' : userset[ix + 8]);
         printser(serbuf);
     }
-    printser_P(PSTR("\r\n"));
+    for (ix = 0; ix < 8; ix++) {
+        sprintf( serbuf, pullp(PSTR("%c")), (respget[7] >> ix) & 1 ? '_' : userset[ix + 16]);
+        printser(serbuf);
+    }
+    printser(pullp(PSTR("\r\n")));
 }
 
 static void usershow() {
@@ -551,33 +546,33 @@ static void usershow() {
 static void infoscan() {
     int ix;
 
-    //    sprintf( serbuf, "VN: %d: %02x %02x %02x %02x %02x %02x %02x\r\n", ix, cmdsend[0], cmdsend[1], cmdsend[2], cmdsend[3], cmdsend[4], cmdsend[5], cmdsend[6] );
-    printser_P(PSTR("=====INFOSCAN=====\r\n"));
+    //    sprintf( serbuf, pullp(PSTR("VN: %d: %02x %02x %02x %02x %02x %02x %02x\r\n")), ix, cmdsend[0], cmdsend[1], cmdsend[2], cmdsend[3], cmdsend[4], cmdsend[5], cmdsend[6] );
+    printser(pullp(PSTR("=====INFOSCAN=====\r\n")));
     syncresp();
 
     // do commands
     makecmd(cmdsend, cmdslice, 0xa, REQVERSION, 0, NULL);
     sendcmd(cmdsend, RESPVERSION, respget);
-    printser_P(PSTR("V1 Version: "));
+    printser(pullp(PSTR("V1 Version: ")));
 
     for (ix = 0; ix < respget[4] - 1; ix++) {
-        sprintf(serbuf, "%c", respget[5 + ix] < 127 && respget[5 + ix] > 31 ? respget[5 + ix] : '.');
+        sprintf( serbuf, pullp(PSTR("%c")), respget[5 + ix] < 127 && respget[5 + ix] > 31 ? respget[5 + ix] : '.');
         printser(serbuf);
     }
-    printser_P(PSTR("\r\n"));
+    printser(pullp(PSTR("\r\n")));
 
     makecmd(cmdsend, cmdslice, 0xa, REQSERIALNUMBER, 0, NULL);
     sendcmd(cmdsend, RESPSERIALNUMBER, respget);
-    printser_P(PSTR("V1 SerialNo: "));
+    printser(pullp(PSTR("V1 SerialNo: ")));
     for (ix = 0; ix < respget[4] - 1; ix++) {
-        sprintf(serbuf, "%c", respget[5 + ix] < 127 && respget[5 + ix] > 31 ? respget[5 + ix] : '.');
+        sprintf( serbuf, pullp(PSTR("%c")), respget[5 + ix] < 127 && respget[5 + ix] > 31 ? respget[5 + ix] : '.');
         printser(serbuf);
     }
-    printser_P(PSTR("\r\n"));
+    printser(pullp(PSTR("\r\n")));
 
     makecmd(cmdsend, cmdslice, 0xa, REQBATTERYVOLTAGE, 0, NULL);
     sendcmd(cmdsend, RESPBATTERYVOLTAGE, respget);
-    sprintf(serbuf, "BattVolt: %d.%02d\r\n", respget[5], respget[6]);
+    sprintf( serbuf, pullp(PSTR("BattVolt: %d.%02d\r\n")), respget[5], respget[6]);
     printser(serbuf);
 
     usershow();
@@ -588,51 +583,51 @@ static void infoscan() {
     // Concealed Display
     makecmd(cmdsend, cmdslice, 0, REQVERSION, 0, NULL);
     sendcmd(cmdsend, RESPVERSION, respget);
-    printser_P(PSTR("CD Version: "));
+    printser(pullp(PSTR("CD Version: ")));
     for (ix = 0; ix < respget[4] - 1; ix++) {
-        sprintf(serbuf, "%c", respget[5 + ix] < 127 && respget[5 + ix] > 31 ? respget[5 + ix] : '.');
+        sprintf( serbuf, pullp(PSTR("%c")), respget[5 + ix] < 127 && respget[5 + ix] > 31 ? respget[5 + ix] : '.');
         printser(serbuf);
     }
-    printser_P(PSTR("\r\n"));
+    printser(pullp(PSTR("\r\n")));
 
     // Remote Audio
     makecmd(cmdsend, cmdslice, 1, REQVERSION, 0, NULL);
     sendcmd(cmdsend, RESPVERSION, respget);
-    printser_P(PSTR("RA Version: "));
+    printser(pullp(PSTR("RA Version: ")));
     for (ix = 0; ix < respget[4] - 1; ix++) {
-        sprintf(serbuf, "%c", respget[5 + ix] < 127 && respget[5 + ix] > 31 ? respget[5 + ix] : '.');
+        sprintf( serbuf, pullp(PSTR("%c")), respget[5 + ix] < 127 && respget[5 + ix] > 31 ? respget[5 + ix] : '.');
         printser(serbuf);
     }
-    printser_P(PSTR("\r\n"));
+    printser(pullp(PSTR("\r\n")));
 
     // Savvy
     makecmd(cmdsend, cmdslice, 2, REQVERSION, 0, NULL);
     sendcmd(cmdsend, RESPVERSION, respget);
-    printser_P(PSTR("SV Version: "));
+    printser(pullp(PSTR("SV Version: ")));
     for (ix = 0; ix < respget[4] - 1; ix++) {
-        sprintf(serbuf, "%c", respget[5 + ix] < 127 && respget[5 + ix] > 31 ? respget[5 + ix] : '.');
+        sprintf( serbuf, pullp(PSTR("%c")), respget[5 + ix] < 127 && respget[5 + ix] > 31 ? respget[5 + ix] : '.');
         printser(serbuf);
     }
-    printser_P(PSTR("\r\n"));
+    printser(pullp(PSTR("\r\n")));
 
     makecmd(cmdsend, cmdslice, 2, REQSERIALNUMBER, 0, NULL);
     sendcmd(cmdsend, RESPSERIALNUMBER, respget);
-    printser_P(PSTR("SV SerialNo: "));
+    printser(pullp(PSTR("SV SerialNo: ")));
     for (ix = 0; ix < respget[4] - 1; ix++) {
-        sprintf(serbuf, "%c", respget[5 + ix] < 127 && respget[5 + ix] > 31 ? respget[5 + ix] : '.');
+        sprintf( serbuf, pullp(PSTR("%c")), respget[5 + ix] < 127 && respget[5 + ix] > 31 ? respget[5 + ix] : '.');
         printser(serbuf);
     }
-    printser_P(PSTR("\r\n"));
+    printser(pullp(PSTR("\r\n")));
 
     makecmd(cmdsend, cmdslice, 2, REQSAVVYSTATUS, 0, NULL);
     sendcmd(cmdsend, RESPSAVVYSTATUS, respget);
-    sprintf(serbuf, "SavvyStat: ThreshKPH:%d (unmu ena: throvrd):%d\r\n", respget[5], respget[6]);
+    sprintf( serbuf, pullp(PSTR("SavvyStat: ThreshKPH:%d (unmu ena: throvrd):%d\r\n")), respget[5], respget[6]);
     printser(serbuf);
     makecmd(cmdsend, cmdslice, 2, REQVEHICLESPEED, 0, NULL);
     sendcmd(cmdsend, RESPVEHICLESPEED, respget);
-    sprintf(serbuf, "SavvyVehSpd: %d kph\r\n", respget[5]);
+    sprintf( serbuf, pullp(PSTR("SavvyVehSpd: %d kph\r\n")), respget[5]);
     printser(serbuf);
-    printser_P(PSTR("=====END INFOSCAN=====\r\n"));
+    printser(pullp(PSTR("=====END INFOSCAN=====\r\n")));
 }
 
 // Ask for and Display (decoded) alerts
@@ -640,7 +635,7 @@ static const unsigned char typ[] = "LAKXU^-v", t;
 static void alerts() {
     int ix;
     syncresp();
-    printser_P(PSTR("=====ALERTS=====\r\n"));
+    printser(pullp(PSTR("=====ALERTS=====\r\n")));
     makecmd(cmdsend, cmdslice, 0xa, REQSTARTALERTDATA, 0, NULL);
     sendcmd(cmdsend, NORESPONSE, respget);
     for (;;) {
@@ -648,29 +643,27 @@ static void alerts() {
             intail = inhead;
             break;
         }
-        printser_P(PSTR("===\r\n"));
+        printser(pullp(PSTR("===\r\n")));
         ix = v1alerts;
         while (ix == v1alerts)
             readpkt(respget);
         for (ix = 0; ix < (v1alertout[0][0] & 15); ix++) {
             unsigned char *b = v1alertout[ix], t;
-            sprintf(serbuf, "%2d/%2d %5u %3d ^v %3d ", b[0] >> 4, b[0] & 15, b[1] << 8 | b[2], b[3], b[4]);
+            sprintf( serbuf, pullp(PSTR("%2d/%2d %5u %3d ^v %3d ")), b[0] >> 4, b[0] & 15, b[1] << 8 | b[2], b[3], b[4]);
             printser(serbuf);
             for (t = 0; t < 8; t++)
                 if ((b[5] >> t) & 1) {
-                    sprintf(serbuf, "%c", typ[t]);
+                    sprintf( serbuf, pullp(PSTR("%c")), typ[t]);
                     printser(serbuf);
                 }
-            if (b[6] & 0x80) {
-                sprintf(serbuf, "!");
-                printser(serbuf);
-            }
-            printser_P(PSTR("\r\n"));
+            if (b[6] & 0x80)
+                printser(pullp(PSTR("!")));
+            printser(pullp(PSTR("\r\n")));
         }
     }
     makecmd(cmdsend, cmdslice, 0xa, REQSTOPALERTDATA, 0, NULL);
     sendcmd(cmdsend, NORESPONSE, respget);
-    printser_P(PSTR("=====END ALERTS=====\r\n"));
+    printser(pullp(PSTR("=====END ALERTS=====\r\n")));
 }
 
 const prog_char sevs2ascii[] PROGMEM = {
@@ -686,18 +679,18 @@ const prog_char sevs2ascii[] PROGMEM = {
 
 static void showinfdisp() {
     int ix;
-    sprintf(serbuf, "%c%c %02x %02x ", pgm_read_byte(sevs2ascii + (respget[5] & 0x7f)), respget[5] & 0x80 ? 'o' : ' ', respget[5],
+    sprintf( serbuf, pullp(PSTR("%c%c %02x %02x ")), pgm_read_byte(sevs2ascii + (respget[5] & 0x7f)), respget[5] & 0x80 ? 'o' : ' ', respget[5],
       respget[6] ^ respget[5]);
     printser(serbuf);
     for (ix = 0; ix < 8; ix++) {
-        sprintf(serbuf, "%c", (respget[7] >> ix) & 1 ? '*' : '.');
+        sprintf( serbuf, pullp(PSTR("%c")), (respget[7] >> ix) & 1 ? '*' : '.');
         printser(serbuf);
     }
     printser(" ");
         
     for (ix = 0; ix < 8; ix++)
         if ((respget[8] >> ix) & 1) {
-            sprintf(serbuf, "%c", typ[ix]);
+            sprintf( serbuf, pullp(PSTR("%c")), typ[ix]);
             printser(serbuf);
         }
         else
@@ -706,7 +699,7 @@ static void showinfdisp() {
                 
     for (ix = 0; ix < 8; ix++)
         if (((respget[8] ^ respget[9]) >> ix) & 1) {
-            sprintf(serbuf, "%c", typ[ix]);
+            sprintf( serbuf, pullp(PSTR("%c")), typ[ix]);
             printser(serbuf);
         }
         else
@@ -716,12 +709,12 @@ static void showinfdisp() {
     //bit 0-7: Mute, TSHold, SysUp, DispOn, Euro, Custom, -, -
     for (ix = 0; ix < 8; ix++)
         if ((respget[10] >> ix) & 1) {
-            sprintf(serbuf, "%c", inf2[ix]);
+            sprintf( serbuf, pullp(PSTR("%c")), inf2[ix]);
             printser(serbuf);
         }
         else
             printser("_");
-    printser_P(PSTR("\r\n"));
+    printser(pullp(PSTR("\r\n")));
 }
 
 // This setup can be used for Savvy override and unmute setting, by changing the command
@@ -730,6 +723,20 @@ static void showinfdisp() {
 static void setmode(unsigned char mode) {
     syncresp();
     makecmd(cmdsend, cmdslice, 0xa, REQCHANGEMODE, 1, &mode);
+    sendcmd(cmdsend, NORESPONSE, respget);
+}
+
+static void savvyunmute(unsigned char enable) {
+    syncresp();
+    enable = !!enable; // make 0 or 1
+    makecmd(cmdsend, cmdslice, 0xa, REQSETSAVVYUNMUTEENABLE, 1, &enable);
+    sendcmd(cmdsend, NORESPONSE, respget);
+}
+
+// 0 - never, 0xff - always, else kph.
+static void savvyoverride(unsigned char speed) {
+    syncresp();
+    makecmd(cmdsend, cmdslice, 0xa, REQOVERRIDETHUMBWHEEL, 1, &speed);
     sendcmd(cmdsend, NORESPONSE, respget);
 }
 
@@ -743,10 +750,10 @@ static void quickcommand(unsigned char cmd) {
 // prototype - need to add set/reset dialog and edit the buffer
 static void userbytes() {
     syncresp();
-    printser_P(PSTR("Current:\r\n"));
+    printser(pullp(PSTR("Current:\r\n")));
     usershow();
-    printser_P(PSTR("Use one of the above letters/numbers to change,\r\n"
-                    " or Q to quit, W to write changes to the V1\r\n"));
+    printser(pullp(PSTR("Use one of the above letters/numbers to change,\r\n"
+                    " or Q to quit, W to write changes to the V1\r\n")));
     unsigned char ub[6];
     memcpy( ub,respget+5,6);
     for(;;) {
@@ -771,10 +778,10 @@ static void userbytes() {
     memcpy( respget+5,ub,6 );
     userprint();
 
-    printser_P(PSTR("Updating\r\n"));
+    printser(pullp(PSTR("Updating\r\n")));
     makecmd(cmdsend, cmdslice, 0xa, REQWRITEUSERBYTES, 6, ub);
     sendcmd(cmdsend, NORESPONSE, respget);
-    printser_P(PSTR("New:\r\n"));
+    printser(pullp(PSTR("New:\r\n")));
     usershow();
 }
 
@@ -792,7 +799,7 @@ void init()
     int ret;
     unsigned char lastdisp[12];
         
-    printser_P(PSTR("V1MegaTool\r\n"));
+    printser(pullp(PSTR("V1MegaTool\r\n")));
     for(;;) {
         for (;;) {                  // get at least one inf packet
             ret = readpkt(respget);
@@ -802,8 +809,8 @@ void init()
                 break;
         }
         // should give Not Ready message if timecmdslice holdoff.
-        printser_P(PSTR("A-alerts, I-infoscan, D-DefaultSweep, S-SetSweeps. T-transparent, U-userbytes V-ViewDisplay\r\n"));
-        printser_P(PSTR("#-FactDefault 1-DispOff 2-DispOn 3-MuteOn 4-Muteoff 5-AllBogeys 6-Logic 7-Advanced-Logic\r\n"));
+        printser(pullp(PSTR("A-alerts, I-infoscan, D-DefaultSweep, S-SetSweeps. T-transparent, U-userbytes V-ViewDisplay\r\n")));
+        printser(pullp(PSTR("#-FactDefault 1-DispOff 2-DispOn 3-MuteOn 4-Muteoff 5-AllBogeys 6-Logic 7-Advanced-Logic\r\n")));
         while (inhead == intail)
             readpkt(respget);
     
@@ -861,7 +868,7 @@ void init()
             break;
         case 'V':
         case 'v':
-            printser_P(PSTR("Mute (ESP)Hold systemUp mainDisp Euro Custom\r\n"));
+            printser(pullp(PSTR("Mute (ESP)Hold systemUp mainDisp Euro Custom\r\n")));
             lastdisp[0] = 0;
             while( inhead == intail ) {
                 ret = readpkt(respget);
