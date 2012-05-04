@@ -255,7 +255,8 @@ ISR(TIMER4_CAPT_vect)
     polarity ^= 1;
 }
 
-void hwsetup() {
+void hwsetup()
+{
     cli();
     v1state = inmsgstate = inmsglen = polarity = bitcnt = 0;
 
@@ -285,4 +286,5 @@ void hwsetup() {
     // and sleep between events
     set_sleep_mode(SLEEP_MODE_IDLE);
 }
+
 
