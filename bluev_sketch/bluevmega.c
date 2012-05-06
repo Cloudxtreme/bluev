@@ -805,8 +805,7 @@ void init()
     unsigned char lastdisp[12];
 
     printser(pullp(PSTR("V1MegaTool\r\n")));
-    if(legacy > 32)
-    printser(pullp(PSTR("LEGACY!\r\n")));    
+  
     for (;;) {
         for (;;) {              // get at least one inf packet
             ret = readpkt(respget);
@@ -816,6 +815,8 @@ void init()
                 break;
         }
         // should give Not Ready message if timecmdslice holdoff.
+        if(legacy > 32)
+            printser(pullp(PSTR("LEGACY! only V works\r\n")));  
         printser(pullp(PSTR("A-alerts, I-infoscan, D-DefaultSweep, S-SetSweeps. T-transparent, U-userbytes V-ViewDisplay\r\n")));
         printser(pullp(PSTR("#-FactDefault 1-DispOff 2-DispOn 3-MuteOn 4-Muteoff 5-AllBogeys 6-Logic 7-Advanced-Logic\r\n")));
         char c = getkey();

@@ -232,7 +232,6 @@ ISR(TIMER4_COMPA_vect)
 
 // Software UART via edges
 char legbits[36] = "+medcbap87654321gfKALFFFSSSRRRIXMNOP";
-
 unsigned long legimg;
 ISR(TIMER4_CAPT_vect)
 {
