@@ -193,6 +193,7 @@ static void dostate(unsigned char val)
         OCR4B = OCR4A + BITTIME(10) + BITTIME(1) / 2;
         TIFR4 |= _BV(OCF4B);    /* clear compare match interrupt */
         TIMSK4 |= _BV(OCIE4B);  /* enable compare match interrupt */
+        PORTB ^= _BV(PB7);
         return;
     }
     if (thislen > 6 + infDisp[4])       // too long
@@ -260,6 +261,7 @@ void hwsetup()
     cli();
     v1state = inmsgstate = inmsglen = polarity = bitcnt = 0;
 
+    DDRB = _BV(PB7); // PB7/LED
     // UART init
 #include <util/setbaud.h>
     UBRR2H = UBRR1H = UBRR0H = UBRRH_VALUE;
