@@ -2,6 +2,8 @@ You will need a modular phone cable, some extra wire, an Arduino Mega,
 and the Arduino development environment you can get from
 http://arduino.cc and some basic tools.
 
+See http://harleyhacking.blogspot.com for a more detailed DIY build article.
+
 A modular jack inserted into the accessory port on a V1 power
 connection will have the following connections:
 
@@ -83,6 +85,12 @@ commands.  Infoscan looks for V1, CD, RA, and Savvy and returns all
 the information available.  Alerts enables and shows alerts.
 DefaultSweep will reset sweeps.  SetSweep will allow you to write a
 user set of sweeps.  See the V1 docs for how to make it valid.
+
+Note: If the bus is in legacy mode, you will see a long line with
+letters representing the LEDs which are lit on the display which is
+the legacy data stream.  This stream is documented at
+valentineone.com.  It has been added to show the V1 is in legacy mode
+and cannot accept ESP.
 
 There is a "v1 busy message" which is
 currently disabled but would show up if this is happening.
