@@ -232,6 +232,8 @@ ISR(TIMER4_COMPA_vect)
 
 // Software UART via edges
 char legbits[36] = "+medcbap87654321gfKALFFFSSSRRRIXMNOP";
+
+unsigned long legimg;
 ISR(TIMER4_CAPT_vect)
 {
     static unsigned lastedge;
@@ -242,33 +244,75 @@ ISR(TIMER4_CAPT_vect)
     polarity ^= 1;
 
 // Legacy Mode
+#define LEGABIT (504)
+#define USTICS(us) ((us) * (F_CPU/PRESCALE1)/1000000)
     if( legacy > 255 ) {
-        if( width < 200 ) { // normal bits for ESP
+        if( width < USTICS(LEGABIT)/5 ) { // normal bits for ESP
             bitcnt = 0;
             legacy--;
             return;
         }
-        if( width > 2080 ) {
+        if( width > USTICS(LEGABIT)*2 ) { // 9.58 mS nominal
             PORTB ^= _BV(PB7);
             bitcnt = 0;
-            UDR2 = UDR0 = '\n';
+            ;//UDR2 = UDR0 = '\n';
             return;
         }
         if( polarity )
             return;
         ++bitcnt;
-        if( width < 504 ) {
-            if( bitcnt < 36 )
-                UDR2 = UDR0 = legbits[bitcnt-1];
+        legimg <<= 1;
+        if( width <  USTICS(LEGABIT)/2 ) {
+            if( bitcnt < 37 ) {
+                ;//UDR2 = UDR0 = legbits[bitcnt-1];
+                legimg |= 1;
+            }
             else  
-                UDR2 = UDR0 = '#';
+                ;//UDR2 = UDR0 = '#';
         }
         else
-            UDR2 = UDR0 = '_';    
+            ;//UDR2 = UDR0 = '_';  
+            
+        if( bitcnt == 33 ) { // Simulate an infDisplay packet
+            unsigned char outb, ix, cks = 0;
+            cks += v1buf[v1head++] = 0xaa; // SOF
+            cks += v1buf[v1head++] = 0xd8; // Dest - broadcast
+            cks += v1buf[v1head++] = 0xea; // Source - V1
+            cks += v1buf[v1head++] = 0x31; // infDisplay
+            cks += v1buf[v1head++] = 9; // Len
+
+            outb = (legimg >> 26) & 0x1f;
+            outb |= (legimg >> 10) & 0x40;
+            outb |= (legimg >> 10) & 0x20;
+            outb |= (legimg >> 18) & 0x80;
+            
+            cks += v1buf[v1head++] = outb;
+            cks += v1buf[v1head++] = outb;
+
+            outb = legimg >> 17; // signal strength
+            cks += v1buf[v1head++] = outb;
+
+            outb = (legimg >> 12) & 7;
+            outb |= (legimg << 2) & 8;
+            outb |= (legimg >> 6) & 0x20;
+            outb |= (legimg >> 1) & 0x40;
+            outb |= (legimg << 3) & 0x80;
+
+            cks += v1buf[v1head++] = outb;
+            cks += v1buf[v1head++] = outb;
+
+            cks += v1buf[v1head++] = 0xe | ((legimg>>31) & 1);
+            v1buf[v1head++] = 0;
+            v1buf[v1head++] = 0;
+
+            v1buf[v1head++] = cks; // checksum 
+            v1buf[v1head++] = 0xab; // EOF
+
+        }
         return;
     }
 
-    if(width > 980 && width < 1040 ) {
+    if(width > USTICS(LEGABIT) - 25 && width < USTICS(LEGABIT) + 25 ) {
         if( (++legacy & 1023) == 0 ) {
             PORTB ^= _BV(PB7);
             UDR0 = 'L';

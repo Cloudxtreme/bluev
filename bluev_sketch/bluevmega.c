@@ -215,7 +215,8 @@ static int readpkt(unsigned char *buf)
         else if (buf[3] == RESPDATARECEIVED) {
             cddr++;
         }
-        else {
+        //else 
+        {
 #if 0
             // show nonstream traffic
             sprintf(serbuf, pullp(PSTR("r: %d:")), len);
@@ -798,7 +799,6 @@ int main()
 void init()
 #endif
 {
-
     hwsetup();
 
     int ret;
