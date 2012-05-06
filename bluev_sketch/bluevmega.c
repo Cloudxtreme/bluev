@@ -790,7 +790,7 @@ static void userbytes() {
 }
 
 extern void hwsetup(void);
-
+extern volatile unsigned legacy;
 /*========================================================================*/
 #ifdef STANDALONE
 int main()
@@ -805,6 +805,8 @@ void init()
     unsigned char lastdisp[12];
 
     printser(pullp(PSTR("V1MegaTool\r\n")));
+    if(legacy > 32)
+    printser(pullp(PSTR("LEGACY!\r\n")));    
     for (;;) {
         for (;;) {              // get at least one inf packet
             ret = readpkt(respget);
@@ -888,5 +890,6 @@ void init()
         }
     }
 }
+
 
 

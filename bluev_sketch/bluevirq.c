@@ -202,6 +202,7 @@ static void dostate(unsigned char val)
 
 static unsigned char outchar;   // bitbang UART receive register
 static unsigned char polarity;  // which edge are we looking for
+volatile unsigned legacy;
 //Stopbit for software UART
 ISR(TIMER4_COMPA_vect)
 {
@@ -219,6 +220,8 @@ ISR(TIMER4_COMPA_vect)
         else
             v1buf[v1head++] = outchar;
         dostate(outchar);
+        if(legacy)
+            legacy--;
     }
     else {                      // break, reset things for next start bit
         TCCR4B &= ~_BV(ICES1);
@@ -228,32 +231,68 @@ ISR(TIMER4_COMPA_vect)
 }
 
 // Software UART via edges
+char legbits[36] = "+medcbap87654321gfKALFFFSSSRRRIXMNOP";
 ISR(TIMER4_CAPT_vect)
 {
     static unsigned lastedge;
+    unsigned thisedge = ICR4;
     TCCR4B ^= _BV(ICES1);
+    unsigned width = thisedge - lastedge;
+    lastedge = thisedge;
+    polarity ^= 1;
+
+// Legacy Mode
+    if( legacy > 255 ) {
+        if( width < 200 ) { // normal bits for ESP
+            bitcnt = 0;
+            legacy--;
+            return;
+        }
+        if( width > 2080 ) {
+            PORTB ^= _BV(PB7);
+            bitcnt = 0;
+            UDR2 = UDR0 = '\n';
+            return;
+        }
+        if( polarity )
+            return;
+        ++bitcnt;
+        if( width < 504 ) {
+            if( bitcnt < 36 )
+                UDR2 = UDR0 = legbits[bitcnt-1];
+            else  
+                UDR2 = UDR0 = '#';
+        }
+        else
+            UDR2 = UDR0 = '_';    
+        return;
+    }
+
+    if(width > 980 && width < 1040 ) {
+        if( (++legacy & 1023) == 0 ) {
+            PORTB ^= _BV(PB7);
+            UDR0 = 'L';
+        }
+        legacy &= 4095;
+    }
+
     /* toggle interrupt on rising/falling edge */
-    if (!polarity && !bitcnt) { // start bit
-        lastedge = ICR4;
+    if (polarity && !bitcnt) { // start bit
         OCR4A = lastedge + BITTIME(9) + BITTIME(1) / 2;
         TIFR4 |= _BV(OCF4A);    /* clear compare match interrupt */
         TIMSK4 |= _BV(OCIE4A);  /* enable compare match interrupt */
-        polarity = 1;
         bitcnt = 1;
         return;
     }
-    unsigned thisedge = ICR4;
-    unsigned width = thisedge - lastedge;
-    lastedge = thisedge;
     width += BITTIME(1) / 2;    // round up
     while (width >= BITTIME(1)) {       // Shift in bits based on width
         width -= BITTIME(1);
         bitcnt++;
         outchar >>= 1;
-        if (!polarity)
+        if (polarity)
             outchar |= 0x80;
     }
-    polarity ^= 1;
+
 }
 
 void hwsetup()
