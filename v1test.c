@@ -305,16 +305,23 @@ static unsigned int maxswp = 5;
 // make sure the buffer is clear by getting an echo.
 // FIXME - should have long timeout and return status.
 static void syncresp() {
-    int iy;
+    int iy, ix;
     // send one request version to clear out the incoming packet respgetfer
-    makecmd(cmdsend, cmdslice, 0xa, REQVERSION, 0, NULL);
-    sendcmd(cmdsend, NORESPONSE, respget);
     for (;;) {
-        iy = readpkt(respget);
-        if (iy < 6)
-            continue;
-        if (respget[3] == RESPVERSION)
-            break;
+	makecmd(cmdsend, cmdslice, 0xa, REQVERSION, 0, NULL);
+	sendcmd(cmdsend, NORESPONSE, respget);
+	ix = 20;
+	while( --ix ) {
+	    iy = readpkt(respget);
+	    if (iy < 6)
+		continue;
+	    if (respget[3] == RESPVERSION)
+		break;
+	}
+	if( ix )
+	    break;
+	else
+	    printser(pullp(PSTR("syncing...\r\n")));
     }
 }
 
