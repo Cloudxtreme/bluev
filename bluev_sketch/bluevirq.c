@@ -245,7 +245,7 @@ ISR(TIMER4_CAPT_vect)
 // Legacy Mode
 #define LEGABIT (504)
 #define USTICS(us) ((us) * (F_CPU/PRESCALE1)/1000000)
-    if( legacy > 255 ) {
+    if( legacy > 100 ) {
         if( width < USTICS(LEGABIT)/5 ) { // normal bits for ESP
             bitcnt = 0;
             legacy--;
@@ -273,7 +273,7 @@ ISR(TIMER4_CAPT_vect)
             ;//UDR2 = UDR0 = '_';  
             
         if( bitcnt == 33 ) { // Simulate an infDisplay packet
-            unsigned char outb, ix, cks = 0;
+            unsigned char outb, cks = 0;
             cks += v1buf[v1head++] = 0xaa; // SOF
             cks += v1buf[v1head++] = 0xd8; // Dest - broadcast
             cks += v1buf[v1head++] = 0xea; // Source - V1
